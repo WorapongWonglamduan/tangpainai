@@ -9,6 +9,7 @@ import {
   type ExpenseCategoryValue,
 } from "@/constants/expense-category";
 import {
+  DASHBOARD_PERIOD,
   DASHBOARD_PERIOD_LABEL_TH,
   DASHBOARD_PERIOD_OPTIONS,
   type DashboardPeriodValue,
@@ -27,6 +28,7 @@ type DashboardExpense = {
 };
 
 type DashboardResponse = {
+  memberName: string;
   period: DashboardPeriodValue;
   anchorDate: string;
   periodLabel: string;
@@ -34,6 +36,8 @@ type DashboardResponse = {
   hasNextPeriod: boolean;
   prevAnchorDate: string;
   nextAnchorDate: string;
+  customStart: string | null;
+  customEnd: string | null;
   total: number;
   categoryTotals: Record<ExpenseCategoryValue, number>;
   expenses: DashboardExpense[];
@@ -43,6 +47,8 @@ export default function DashboardPage() {
   const { idToken, error: initError } = useLiffIdToken();
   const [period, setPeriod] = useState<DashboardPeriodValue>(DASHBOARD_PERIOD_OPTIONS[3]);
   const [anchorDate, setAnchorDate] = useState<string | null>(null);
+  const [customStart, setCustomStart] = useState<string | null>(null);
+  const [customEnd, setCustomEnd] = useState<string | null>(null);
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
@@ -54,7 +60,12 @@ export default function DashboardPage() {
       setFetchError(null);
       try {
         const params = new URLSearchParams({ period });
-        if (anchorDate) params.set("date", anchorDate);
+        if (period === DASHBOARD_PERIOD.CUSTOM) {
+          if (customStart) params.set("start", customStart);
+          if (customEnd) params.set("end", customEnd);
+        } else if (anchorDate) {
+          params.set("date", anchorDate);
+        }
 
         const response = await fetch(`/api/dashboard/summary?${params}`, {
           headers: { Authorization: `Bearer ${idToken}` },
@@ -82,11 +93,15 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [idToken, period, anchorDate]);
+  }, [idToken, period, anchorDate, customStart, customEnd]);
 
   function selectPeriod(next: DashboardPeriodValue) {
     setPeriod(next);
-    setAnchorDate(null); // switching period type always starts from "today"
+    // switching period type always starts from a fresh default (today, or the
+    // server's default custom range)
+    setAnchorDate(null);
+    setCustomStart(null);
+    setCustomEnd(null);
   }
 
   if (initError) {
@@ -107,7 +122,15 @@ export default function DashboardPage() {
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-md bg-surface px-4 py-6 text-on-surface">
-      <h1 className="text-lg font-semibold">สรุปค่าใช้จ่ายบ้าน</h1>
+      <div className="flex items-center justify-between gap-2">
+        <h1 className="text-lg font-semibold">สรุปค่าใช้จ่ายบ้าน</h1>
+        <span className="flex items-center gap-1.5 rounded-full bg-surface-container px-2.5 py-1 text-xs font-medium text-on-surface-variant">
+          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-on-primary">
+            {data.memberName.charAt(0)}
+          </span>
+          {data.memberName}
+        </span>
+      </div>
 
       <div className="-mx-4 mt-4 flex gap-2 overflow-x-auto px-4 pb-1">
         {DASHBOARD_PERIOD_OPTIONS.map((option) => (
@@ -126,29 +149,46 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      <div className="mt-3 flex items-center justify-between rounded-xl bg-surface-container-lowest px-3 py-2 shadow-sm">
-        <button
-          type="button"
-          disabled={!data.hasPrevPeriod}
-          onClick={() => setAnchorDate(data.prevAnchorDate)}
-          className="px-2 py-1 text-on-surface-variant disabled:opacity-30"
-        >
-          ‹
-        </button>
-        <span className="text-sm font-medium">{data.periodLabel}</span>
-        <button
-          type="button"
-          disabled={!data.hasNextPeriod}
-          onClick={() => setAnchorDate(data.nextAnchorDate)}
-          className="px-2 py-1 text-on-surface-variant disabled:opacity-30"
-        >
-          ›
-        </button>
-      </div>
-
-      <div className="mt-2">
-        <CalendarDatePicker value={data.anchorDate} onChange={setAnchorDate} />
-      </div>
+      {data.period === DASHBOARD_PERIOD.CUSTOM ? (
+        <div className="mt-3 flex items-center gap-2">
+          <CalendarDatePicker
+            value={data.customStart ?? data.anchorDate}
+            onChange={setCustomStart}
+            className="flex flex-1 items-center gap-2 rounded-xl bg-surface-container-lowest px-3 py-2 text-sm shadow-sm"
+          />
+          <span className="text-on-surface-variant">–</span>
+          <CalendarDatePicker
+            value={data.customEnd ?? data.anchorDate}
+            onChange={setCustomEnd}
+            className="flex flex-1 items-center gap-2 rounded-xl bg-surface-container-lowest px-3 py-2 text-sm shadow-sm"
+          />
+        </div>
+      ) : (
+        <div className="mt-3 flex items-center justify-between rounded-xl bg-surface-container-lowest px-3 py-2 shadow-sm">
+          <button
+            type="button"
+            disabled={!data.hasPrevPeriod}
+            onClick={() => setAnchorDate(data.prevAnchorDate)}
+            className="px-2 py-1 text-on-surface-variant disabled:opacity-30"
+          >
+            ‹
+          </button>
+          <CalendarDatePicker
+            value={data.anchorDate}
+            onChange={setAnchorDate}
+            label={data.periodLabel}
+            className="flex flex-1 items-center justify-center gap-1.5 text-sm font-medium"
+          />
+          <button
+            type="button"
+            disabled={!data.hasNextPeriod}
+            onClick={() => setAnchorDate(data.nextAnchorDate)}
+            className="px-2 py-1 text-on-surface-variant disabled:opacity-30"
+          >
+            ›
+          </button>
+        </div>
+      )}
 
       <section className="mt-4 rounded-xl bg-surface-container-lowest p-4 shadow-sm">
         <p className="text-sm text-on-surface-variant">ยอดรวมช่วงนี้</p>

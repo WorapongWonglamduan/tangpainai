@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
-import { getDashboardData } from "@/lib/dashboard";
+import { addDays, getBangkokDateString, getDashboardData } from "@/lib/dashboard";
 import { verifyLiffIdToken } from "@/lib/liff-auth";
 import { DASHBOARD_PERIOD, type DashboardPeriodValue } from "@/constants/period";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const VALID_PERIODS = new Set<string>(Object.values(DASHBOARD_PERIOD));
+// Default span shown the first time a member switches to the custom filter,
+// before they've picked their own start/end.
+const DEFAULT_CUSTOM_RANGE_DAYS = 7;
 
 export async function GET(request: Request) {
   const authHeader = request.headers.get("authorization");
@@ -28,12 +31,26 @@ export async function GET(request: Request) {
   const dateParam = searchParams.get("date");
   const anchorDate = dateParam && DATE_PATTERN.test(dateParam) ? dateParam : undefined;
 
-  const data = await getDashboardData(lineUserId, period, anchorDate);
+  let customRange: { startDate: string; endDateInclusive: string } | undefined;
+  if (period === DASHBOARD_PERIOD.CUSTOM) {
+    const startParam = searchParams.get("start");
+    const endParam = searchParams.get("end");
+    const start = startParam && DATE_PATTERN.test(startParam) ? startParam : undefined;
+    const end = endParam && DATE_PATTERN.test(endParam) ? endParam : undefined;
+
+    customRange =
+      start && end
+        ? { startDate: start, endDateInclusive: end }
+        : { startDate: addDays(getBangkokDateString(), -(DEFAULT_CUSTOM_RANGE_DAYS - 1)), endDateInclusive: getBangkokDateString() };
+  }
+
+  const data = await getDashboardData(lineUserId, period, anchorDate, customRange);
   if (!data) {
     return NextResponse.json({ error: "not a member of any household yet" }, { status: 404 });
   }
 
   return NextResponse.json({
+    memberName: data.memberName,
     period: data.period,
     anchorDate: data.anchorDate,
     periodLabel: data.periodLabel,
@@ -41,6 +58,8 @@ export async function GET(request: Request) {
     hasNextPeriod: data.hasNextPeriod,
     prevAnchorDate: data.prevAnchorDate,
     nextAnchorDate: data.nextAnchorDate,
+    customStart: data.customStart,
+    customEnd: data.customEnd,
     total: data.total,
     categoryTotals: data.categoryTotals,
     expenses: data.expenses.map((expense) => ({

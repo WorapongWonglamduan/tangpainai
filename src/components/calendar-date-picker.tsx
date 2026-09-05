@@ -3,8 +3,11 @@
 import { useState } from "react";
 
 type CalendarDatePickerProps = {
-  value: string; // "YYYY-MM-DD"
+  value: string; // "YYYY-MM-DD", also used as the calendar's initial month/selection
   onChange: (date: string) => void;
+  /** Text shown on the trigger button. Defaults to a short formatted `value`. */
+  label?: string;
+  className?: string;
 };
 
 const WEEKDAY_LABELS_TH = ["จ", "อ", "พ", "พฤ", "ศ", "ส", "อา"];
@@ -38,7 +41,7 @@ function formatShortThai(dateStr: string): string {
   return `${d} ${MONTH_LABELS_TH[m - 1].slice(0, 3)}. ${y + BUDDHIST_ERA_OFFSET}`;
 }
 
-export function CalendarDatePicker({ value, onChange }: CalendarDatePickerProps) {
+export function CalendarDatePicker({ value, onChange, label, className }: CalendarDatePickerProps) {
   const selected = parseDateParts(value);
   const [open, setOpen] = useState(false);
   const [viewYear, setViewYear] = useState(selected.y);
@@ -93,10 +96,10 @@ export function CalendarDatePicker({ value, onChange }: CalendarDatePickerProps)
       <button
         type="button"
         onClick={() => (open ? setOpen(false) : openCalendar())}
-        className="flex w-full items-center gap-2 rounded-xl bg-surface-container-lowest px-3 py-2 text-sm shadow-sm"
+        className={className ?? "flex w-full items-center gap-2 rounded-xl bg-surface-container-lowest px-3 py-2 text-sm shadow-sm"}
       >
         <span className="text-on-surface-variant">📅</span>
-        <span className="font-medium">{formatShortThai(value)}</span>
+        <span className="font-medium">{label ?? formatShortThai(value)}</span>
       </button>
 
       {open && (
