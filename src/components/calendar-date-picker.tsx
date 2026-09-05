@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Icon } from "@/components/icon";
 
 type CalendarDatePickerProps = {
   value: string; // "YYYY-MM-DD", also used as the calendar's initial month/selection
@@ -102,7 +103,7 @@ export function CalendarDatePicker({ value, onChange, label, className, align = 
           className ?? "flex w-full items-center gap-2 rounded-xl bg-surface-container-lowest px-3 py-2 text-sm shadow-sm"
         }
       >
-        <span className="text-on-surface-variant">📅</span>
+        <Icon name="calendar_month" className="text-[18px] text-on-surface-variant" />
         <span className="truncate font-medium">{label ?? formatShortThai(value)}</span>
       </button>
 
@@ -118,9 +119,9 @@ export function CalendarDatePicker({ value, onChange, label, className, align = 
               <button
                 type="button"
                 onClick={() => shiftMonth(-1)}
-                className="rounded-full px-2 py-1 text-on-surface-variant hover:bg-surface-container-low"
+                className="rounded-full p-1 text-on-surface-variant hover:bg-surface-container-low"
               >
-                ‹
+                <Icon name="chevron_left" />
               </button>
               <span className="text-sm font-semibold">
                 {MONTH_LABELS_TH[viewMonth - 1]} {viewYear + BUDDHIST_ERA_OFFSET}
@@ -128,9 +129,9 @@ export function CalendarDatePicker({ value, onChange, label, className, align = 
               <button
                 type="button"
                 onClick={() => shiftMonth(1)}
-                className="rounded-full px-2 py-1 text-on-surface-variant hover:bg-surface-container-low"
+                className="rounded-full p-1 text-on-surface-variant hover:bg-surface-container-low"
               >
-                ›
+                <Icon name="chevron_right" />
               </button>
             </div>
 

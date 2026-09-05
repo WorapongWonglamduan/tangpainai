@@ -18,13 +18,16 @@ export const EXPENSE_CATEGORY_LABEL_TH: Record<ExpenseCategoryValue, string> = {
   [EXPENSE_CATEGORY.OTHER]: "อื่นๆ",
 };
 
+// Material Symbols Outlined icon names (see src/components/icon.tsx) — not emoji,
+// so rendering stays consistent across platforms instead of following each OS's
+// own emoji set.
 export const EXPENSE_CATEGORY_ICON: Record<ExpenseCategoryValue, string> = {
-  [EXPENSE_CATEGORY.RENT]: "🏠",
-  [EXPENSE_CATEGORY.UTILITIES]: "💡",
-  [EXPENSE_CATEGORY.INTERNET]: "🌐",
-  [EXPENSE_CATEGORY.AI]: "🤖",
-  [EXPENSE_CATEGORY.FOOD]: "🍜",
-  [EXPENSE_CATEGORY.OTHER]: "🧾",
+  [EXPENSE_CATEGORY.RENT]: "home",
+  [EXPENSE_CATEGORY.UTILITIES]: "bolt",
+  [EXPENSE_CATEGORY.INTERNET]: "wifi",
+  [EXPENSE_CATEGORY.AI]: "smart_toy",
+  [EXPENSE_CATEGORY.FOOD]: "restaurant",
+  [EXPENSE_CATEGORY.OTHER]: "receipt_long",
 };
 
 // Tailwind classes for this category's chip badge and its slice in the category breakdown bar.

@@ -17,6 +17,7 @@ import {
 import { useLiffIdToken } from "@/hooks/use-liff-id-token";
 import { CenteredMessage } from "@/components/centered-message";
 import { CalendarDatePicker } from "@/components/calendar-date-picker";
+import { Icon } from "@/components/icon";
 
 type DashboardExpense = {
   id: string;
@@ -170,9 +171,9 @@ export default function DashboardPage() {
             type="button"
             disabled={!data.hasPrevPeriod}
             onClick={() => setAnchorDate(data.prevAnchorDate)}
-            className="px-2 py-1 text-on-surface-variant disabled:opacity-30"
+            className="rounded-full p-1 text-on-surface-variant disabled:opacity-30"
           >
-            ‹
+            <Icon name="chevron_left" />
           </button>
           <CalendarDatePicker
             value={data.anchorDate}
@@ -184,9 +185,9 @@ export default function DashboardPage() {
             type="button"
             disabled={!data.hasNextPeriod}
             onClick={() => setAnchorDate(data.nextAnchorDate)}
-            className="px-2 py-1 text-on-surface-variant disabled:opacity-30"
+            className="rounded-full p-1 text-on-surface-variant disabled:opacity-30"
           >
-            ›
+            <Icon name="chevron_right" />
           </button>
         </div>
       )}
@@ -217,9 +218,9 @@ export default function DashboardPage() {
               <li key={category} className="flex items-center justify-between text-sm">
                 <span className="flex items-center gap-1.5">
                   <span
-                    className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-xs ${EXPENSE_CATEGORY_STYLE[category].badge}`}
+                    className={`inline-flex h-5 w-5 items-center justify-center rounded-full ${EXPENSE_CATEGORY_STYLE[category].badge}`}
                   >
-                    {EXPENSE_CATEGORY_ICON[category]}
+                    <Icon name={EXPENSE_CATEGORY_ICON[category]} className="text-[14px]" />
                   </span>
                   {EXPENSE_CATEGORY_LABEL_TH[category]}
                 </span>
@@ -240,9 +241,9 @@ export default function DashboardPage() {
                 className="flex items-center gap-3 rounded-xl bg-surface-container-lowest p-3 shadow-sm transition-colors active:bg-surface-container-low"
               >
                 <span
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-lg ${EXPENSE_CATEGORY_STYLE[expense.category].badge}`}
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${EXPENSE_CATEGORY_STYLE[expense.category].badge}`}
                 >
-                  {EXPENSE_CATEGORY_ICON[expense.category]}
+                  <Icon name={EXPENSE_CATEGORY_ICON[expense.category]} className="text-[20px]" />
                 </span>
 
                 <div className="min-w-0 flex-1">

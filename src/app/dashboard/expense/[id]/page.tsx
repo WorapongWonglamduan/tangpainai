@@ -2,14 +2,10 @@
 
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
-import {
-  EXPENSE_CATEGORY,
-  EXPENSE_CATEGORY_ICON,
-  EXPENSE_CATEGORY_LABEL_TH,
-  type ExpenseCategoryValue,
-} from "@/constants/expense-category";
+import { EXPENSE_CATEGORY, EXPENSE_CATEGORY_LABEL_TH, type ExpenseCategoryValue } from "@/constants/expense-category";
 import { useLiffIdToken } from "@/hooks/use-liff-id-token";
 import { CenteredMessage } from "@/components/centered-message";
+import { Icon } from "@/components/icon";
 
 type ExpenseDetail = {
   id: string;
@@ -114,8 +110,9 @@ export default function ExpenseDetailPage({ params }: { params: Promise<{ id: st
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-md bg-surface px-4 py-6 text-on-surface">
-      <Link href="/dashboard" className="text-sm text-on-surface-variant">
-        ‹ กลับ
+      <Link href="/dashboard" className="flex items-center gap-0.5 text-sm text-on-surface-variant">
+        <Icon name="chevron_left" className="text-[18px]" />
+        กลับ
       </Link>
 
       <h1 className="mt-2 text-lg font-semibold">แก้ไขรายการ</h1>
@@ -141,7 +138,7 @@ export default function ExpenseDetailPage({ params }: { params: Promise<{ id: st
           >
             {CATEGORY_OPTIONS.map((option) => (
               <option key={option} value={option}>
-                {EXPENSE_CATEGORY_ICON[option]} {EXPENSE_CATEGORY_LABEL_TH[option]}
+                {EXPENSE_CATEGORY_LABEL_TH[option]}
               </option>
             ))}
           </select>
