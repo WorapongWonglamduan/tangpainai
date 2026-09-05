@@ -196,16 +196,21 @@ jobs:
             exit 0
           fi
 
+          # Repo name prefix — this webhook is shared with other projects'
+          # deploy notifications in the same Discord channel, so a bare
+          # "Deploy สำเร็จ" is ambiguous about which one just shipped.
+          REPO="${{ github.event.repository.name }}"
+
           if [ "${{ needs.test.result }}" != "success" ]; then
-            TITLE="Test ล้มเหลว"; COLOR=15158332
+            TITLE="[$REPO] Test ล้มเหลว"; COLOR=15158332
           elif [ "${{ needs['build-and-push'].result }}" != "success" ]; then
-            TITLE="Build/push image ล้มเหลว"; COLOR=15158332
+            TITLE="[$REPO] Build/push image ล้มเหลว"; COLOR=15158332
           elif [ "${{ needs['migrate-db'].result }}" != "success" ]; then
-            TITLE="Migrate DB ล้มเหลว"; COLOR=15158332
+            TITLE="[$REPO] Migrate DB ล้มเหลว"; COLOR=15158332
           elif [ "${{ needs.deploy.result }}" != "success" ]; then
-            TITLE="Deploy ล้มเหลว"; COLOR=15158332
+            TITLE="[$REPO] Deploy ล้มเหลว"; COLOR=15158332
           else
-            TITLE="Deploy สำเร็จ"; COLOR=3066993
+            TITLE="[$REPO] Deploy สำเร็จ"; COLOR=3066993
           fi
 
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
