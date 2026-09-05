@@ -2,7 +2,12 @@
 
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
-import { EXPENSE_CATEGORY, EXPENSE_CATEGORY_LABEL_TH, type ExpenseCategoryValue } from "@/constants/expense-category";
+import {
+  EXPENSE_CATEGORY,
+  EXPENSE_CATEGORY_ICON,
+  EXPENSE_CATEGORY_LABEL_TH,
+  type ExpenseCategoryValue,
+} from "@/constants/expense-category";
 import { useLiffIdToken } from "@/hooks/use-liff-id-token";
 import { CenteredMessage } from "@/components/centered-message";
 
@@ -108,13 +113,13 @@ export default function ExpenseDetailPage({ params }: { params: Promise<{ id: st
   }
 
   return (
-    <main className="mx-auto max-w-md px-4 py-6">
-      <Link href="/dashboard" className="text-sm text-neutral-500">
+    <main className="mx-auto min-h-screen w-full max-w-md bg-surface px-4 py-6 text-on-surface">
+      <Link href="/dashboard" className="text-sm text-on-surface-variant">
         ‹ กลับ
       </Link>
 
       <h1 className="mt-2 text-lg font-semibold">แก้ไขรายการ</h1>
-      <p className="mt-1 text-xs text-neutral-500">
+      <p className="mt-1 text-xs text-on-surface-variant">
         จ่ายโดย {expense.payerName} ·{" "}
         {new Date(expense.createdAt).toLocaleString("th-TH", {
           timeZone: "Asia/Bangkok",
@@ -126,24 +131,24 @@ export default function ExpenseDetailPage({ params }: { params: Promise<{ id: st
         })}
       </p>
 
-      <div className="mt-4 space-y-4">
+      <div className="mt-4 space-y-4 rounded-xl bg-surface-container-lowest p-4 shadow-sm">
         <label className="block text-sm">
-          <span className="text-neutral-500">หมวดหมู่</span>
+          <span className="text-on-surface-variant">หมวดหมู่</span>
           <select
             value={category}
             onChange={(e) => setCategory(e.target.value as ExpenseCategoryValue)}
-            className="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-900"
+            className="mt-1 w-full rounded-lg bg-surface-container-low px-3 py-2 text-on-surface outline-none focus:ring-2 focus:ring-primary/40"
           >
             {CATEGORY_OPTIONS.map((option) => (
               <option key={option} value={option}>
-                {EXPENSE_CATEGORY_LABEL_TH[option]}
+                {EXPENSE_CATEGORY_ICON[option]} {EXPENSE_CATEGORY_LABEL_TH[option]}
               </option>
             ))}
           </select>
         </label>
 
         <label className="block text-sm">
-          <span className="text-neutral-500">จำนวนเงิน (บาท)</span>
+          <span className="text-on-surface-variant">จำนวนเงิน (บาท)</span>
           <input
             type="number"
             inputMode="decimal"
@@ -151,29 +156,29 @@ export default function ExpenseDetailPage({ params }: { params: Promise<{ id: st
             step="0.01"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-900"
+            className="mt-1 w-full rounded-lg bg-surface-container-low px-3 py-2 text-on-surface outline-none focus:ring-2 focus:ring-primary/40"
           />
         </label>
 
         <label className="block text-sm">
-          <span className="text-neutral-500">โน้ต</span>
+          <span className="text-on-surface-variant">โน้ต</span>
           <input
             type="text"
             value={note}
             onChange={(e) => setNote(e.target.value)}
             maxLength={200}
-            className="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-900"
+            className="mt-1 w-full rounded-lg bg-surface-container-low px-3 py-2 text-on-surface outline-none focus:ring-2 focus:ring-primary/40"
           />
         </label>
 
         {saveError && <p className="text-sm text-red-600">{saveError}</p>}
-        {saved && <p className="text-sm text-emerald-600">บันทึกแล้ว</p>}
+        {saved && <p className="text-sm text-primary">บันทึกแล้ว</p>}
 
         <button
           type="button"
           onClick={handleSave}
           disabled={saving || !amount}
-          className="w-full rounded-lg bg-neutral-900 py-2.5 text-sm font-medium text-white disabled:opacity-40 dark:bg-neutral-100 dark:text-neutral-900"
+          className="w-full rounded-lg bg-primary py-2.5 text-sm font-medium text-on-primary transition-transform active:scale-[0.99] disabled:opacity-40"
         >
           {saving ? "กำลังบันทึก..." : "บันทึก"}
         </button>

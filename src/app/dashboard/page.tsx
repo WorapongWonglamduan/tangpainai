@@ -2,7 +2,12 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { EXPENSE_CATEGORY_LABEL_TH, type ExpenseCategoryValue } from "@/constants/expense-category";
+import {
+  EXPENSE_CATEGORY_ICON,
+  EXPENSE_CATEGORY_LABEL_TH,
+  EXPENSE_CATEGORY_STYLE,
+  type ExpenseCategoryValue,
+} from "@/constants/expense-category";
 import {
   DASHBOARD_PERIOD_LABEL_TH,
   DASHBOARD_PERIOD_OPTIONS,
@@ -95,22 +100,24 @@ export default function DashboardPage() {
     return <CenteredMessage text="กำลังโหลด..." />;
   }
 
-  const categoryEntries = Object.entries(data.categoryTotals) as [ExpenseCategoryValue, number][];
+  const categoryEntries = (Object.entries(data.categoryTotals) as [ExpenseCategoryValue, number][])
+    .filter(([, amount]) => amount > 0)
+    .sort(([, a], [, b]) => b - a);
 
   return (
-    <main className="mx-auto max-w-md px-4 py-6">
+    <main className="mx-auto min-h-screen w-full max-w-md bg-surface px-4 py-6 text-on-surface">
       <h1 className="text-lg font-semibold">สรุปค่าใช้จ่ายบ้าน</h1>
 
-      <div className="mt-4 flex gap-2 overflow-x-auto">
+      <div className="-mx-4 mt-4 flex gap-2 overflow-x-auto px-4 pb-1">
         {DASHBOARD_PERIOD_OPTIONS.map((option) => (
           <button
             key={option}
             type="button"
             onClick={() => selectPeriod(option)}
-            className={`shrink-0 rounded-full px-3 py-1.5 text-sm font-medium ${
+            className={`shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors active:scale-95 ${
               option === data.period
-                ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
-                : "bg-neutral-100 text-neutral-500 dark:bg-neutral-900"
+                ? "bg-primary text-on-primary shadow-sm shadow-primary/30"
+                : "bg-surface-container text-on-surface-variant"
             }`}
           >
             {DASHBOARD_PERIOD_LABEL_TH[option]}
@@ -118,12 +125,12 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      <div className="mt-3 flex items-center justify-between rounded-lg border border-neutral-200 px-3 py-2 dark:border-neutral-800">
+      <div className="mt-3 flex items-center justify-between rounded-xl bg-surface-container-lowest px-3 py-2 shadow-sm">
         <button
           type="button"
           disabled={!data.hasPrevPeriod}
           onClick={() => setAnchorDate(data.prevAnchorDate)}
-          className="px-2 py-1 disabled:opacity-30"
+          className="px-2 py-1 text-on-surface-variant disabled:opacity-30"
         >
           ‹
         </button>
@@ -132,60 +139,95 @@ export default function DashboardPage() {
           type="button"
           disabled={!data.hasNextPeriod}
           onClick={() => setAnchorDate(data.nextAnchorDate)}
-          className="px-2 py-1 disabled:opacity-30"
+          className="px-2 py-1 text-on-surface-variant disabled:opacity-30"
         >
           ›
         </button>
       </div>
 
-      <section className="mt-4 rounded-xl bg-neutral-100 p-4 dark:bg-neutral-900">
-        <p className="text-sm text-neutral-500">ยอดรวมช่วงนี้</p>
-        <p className="text-2xl font-bold">{data.total.toLocaleString("th-TH")} บาท</p>
+      <section className="mt-4 rounded-xl bg-surface-container-lowest p-4 shadow-sm">
+        <p className="text-sm text-on-surface-variant">ยอดรวมช่วงนี้</p>
+        <p className="mt-1 text-3xl font-bold tracking-tight text-primary">
+          ฿{data.total.toLocaleString("th-TH")}
+        </p>
       </section>
 
-      <section className="mt-4">
-        <h2 className="text-sm font-medium text-neutral-500">แยกตามหมวด</h2>
-        <ul className="mt-2 divide-y divide-neutral-200 dark:divide-neutral-800">
-          {categoryEntries
-            .filter(([, amount]) => amount > 0)
-            .sort(([, a], [, b]) => b - a)
-            .map(([category, amount]) => (
-              <li key={category} className="flex justify-between py-2 text-sm">
-                <span>{EXPENSE_CATEGORY_LABEL_TH[category]}</span>
-                <span className="font-medium">{amount.toLocaleString("th-TH")} บาท</span>
+      {categoryEntries.length > 0 && (
+        <section className="mt-4 rounded-xl bg-surface-container-lowest p-4 shadow-sm">
+          <h2 className="text-sm font-semibold text-on-surface-variant">แยกตามหมวด</h2>
+
+          <div className="mt-3 flex h-2.5 w-full overflow-hidden rounded-full bg-surface-container-high">
+            {categoryEntries.map(([category, amount]) => (
+              <div
+                key={category}
+                className={EXPENSE_CATEGORY_STYLE[category].bar}
+                style={{ width: `${(amount / data.total) * 100}%` }}
+              />
+            ))}
+          </div>
+
+          <ul className="mt-3 space-y-2">
+            {categoryEntries.map(([category, amount]) => (
+              <li key={category} className="flex items-center justify-between text-sm">
+                <span className="flex items-center gap-1.5">
+                  <span
+                    className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-xs ${EXPENSE_CATEGORY_STYLE[category].badge}`}
+                  >
+                    {EXPENSE_CATEGORY_ICON[category]}
+                  </span>
+                  {EXPENSE_CATEGORY_LABEL_TH[category]}
+                </span>
+                <span className="font-medium">฿{amount.toLocaleString("th-TH")}</span>
               </li>
             ))}
-        </ul>
-      </section>
+          </ul>
+        </section>
+      )}
 
       <section className="mt-6">
-        <h2 className="text-sm font-medium text-neutral-500">รายการช่วงนี้</h2>
+        <h2 className="text-sm font-semibold text-on-surface-variant">รายการช่วงนี้</h2>
         <ul className="mt-2 space-y-2">
           {data.expenses.map((expense) => (
             <li key={expense.id}>
               <Link
                 href={`/dashboard/expense/${expense.id}`}
-                className="block rounded-lg border border-neutral-200 p-3 text-sm active:bg-neutral-50 dark:border-neutral-800 dark:active:bg-neutral-900"
+                className="flex items-center gap-3 rounded-xl bg-surface-container-lowest p-3 shadow-sm transition-colors active:bg-surface-container-low"
               >
-                <div className="flex justify-between">
-                  <span className="font-medium">{EXPENSE_CATEGORY_LABEL_TH[expense.category]}</span>
-                  <span>{Number(expense.amount).toLocaleString("th-TH")} บาท</span>
+                <span
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-lg ${EXPENSE_CATEGORY_STYLE[expense.category].badge}`}
+                >
+                  {EXPENSE_CATEGORY_ICON[expense.category]}
+                </span>
+
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="truncate text-sm font-medium">
+                      {expense.note || EXPENSE_CATEGORY_LABEL_TH[expense.category]}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-1.5 text-xs text-on-surface-variant">
+                    <span
+                      className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${EXPENSE_CATEGORY_STYLE[expense.category].badge}`}
+                    >
+                      {EXPENSE_CATEGORY_LABEL_TH[expense.category]}
+                    </span>
+                    <span>{expense.payerName}</span>
+                    <span>
+                      ·{" "}
+                      {new Date(expense.createdAt).toLocaleString("th-TH", {
+                        timeZone: "Asia/Bangkok",
+                        day: "2-digit",
+                        month: "2-digit",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  </div>
                 </div>
-                <div className="mt-1 flex justify-between text-xs text-neutral-500">
-                  <span>
-                    {expense.payerName}
-                    {expense.note ? ` · ${expense.note}` : ""}
-                  </span>
-                  <span>
-                    {new Date(expense.createdAt).toLocaleString("th-TH", {
-                      timeZone: "Asia/Bangkok",
-                      day: "2-digit",
-                      month: "2-digit",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </span>
-                </div>
+
+                <span className="shrink-0 text-sm font-semibold">
+                  ฿{Number(expense.amount).toLocaleString("th-TH")}
+                </span>
               </Link>
             </li>
           ))}
