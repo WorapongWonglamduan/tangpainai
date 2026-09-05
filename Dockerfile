@@ -1,4 +1,5 @@
-FROM node:20-alpine AS base
+# @line/bot-sdk and @prisma/streams-local both declare engines.node >=22.
+FROM node:22-alpine AS base
 
 FROM base AS deps
 RUN apk add --no-cache libc6-compat
