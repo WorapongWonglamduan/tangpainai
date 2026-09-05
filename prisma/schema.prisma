@@ -1,0 +1,75 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ExpenseCategory {
+  RENT
+  UTILITIES
+  INTERNET
+  AI
+  FOOD
+  OTHER
+
+  @@map("expense_category")
+}
+
+enum ExpenseSource {
+  TEXT
+  IMAGE
+
+  @@map("expense_source")
+}
+
+model Household {
+  id          String   @id @default(cuid())
+  // Exactly one of these is set: group chats key off lineGroupId, 1:1 chats off lineUserId.
+  lineGroupId String?  @unique @map("line_group_id")
+  lineUserId  String?  @unique @map("line_user_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  members  HouseholdMember[]
+  expenses Expense[]
+
+  @@map("households")
+}
+
+model HouseholdMember {
+  id          String    @id @default(cuid())
+  householdId String    @map("household_id")
+  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  lineUserId  String    @unique @map("line_user_id")
+  displayName String?   @map("display_name")
+  joinedAt    DateTime  @default(now()) @map("joined_at")
+
+  expenses Expense[]
+
+  @@map("household_members")
+}
+
+model Expense {
+  id              String          @id @default(cuid())
+  householdId     String          @map("household_id")
+  household       Household       @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  paidByMemberId  String          @map("paid_by_member_id")
+  paidByMember    HouseholdMember @relation(fields: [paidByMemberId], references: [id])
+  // Groups the rows produced from one message/slip so they can be cancelled together.
+  batchId         String          @map("batch_id")
+  // False until the sender taps "ยืนยัน" on the confirm prompt.
+  confirmed       Boolean         @default(false)
+  category        ExpenseCategory
+  amount          Decimal
+  merchant        String?
+  note            String?
+  sourceType      ExpenseSource   @map("source_type")
+  rawSlipImageUrl String?         @map("raw_slip_image_url")
+  occurredAt      DateTime        @default(now()) @map("occurred_at")
+  createdAt       DateTime        @default(now()) @map("created_at")
+
+  @@index([batchId])
+  @@map("expenses")
+}

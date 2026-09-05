@@ -1,0 +1,83 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: tangpainai-postgres
+    restart: unless-stopped
+    ports:
+      # Bound to loopback only, matching l-corner-manage/roihin convention.
+      # Port 5437 avoids clashing with l-corner-manage (5435) and roihin (5436).
+      - "127.0.0.1:5437:5432"
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_DATABASE:-tangpainai}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - tangpainai-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Production container built from the multi-stage Dockerfile (Next.js
+  # standalone output). Not used for local dev — run `npm run dev` on the
+  # host against the `postgres` service above instead; `docker compose up -d`
+  # (no service name) runs this too, which is what the deploy workflow does.
+  app:
+    # Must match the lowercased image the GitHub Actions workflow pushes to
+    # GHCR (deploy.yml lowercases github.repository).
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-changeme}/tangpainai:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # NEXT_PUBLIC_* must be a build arg — see the Dockerfile note. Only
+        # takes effect on `docker compose build`; the real production image
+        # comes from GitHub Actions, which this service only ever pulls.
+        NEXT_PUBLIC_LIFF_ID: ${NEXT_PUBLIC_LIFF_ID:-}
+    container_name: tangpainai-app
+    restart: unless-stopped
+    # No host port published on purpose — only the shared reverse-proxy stack
+    # (Caddy/cloudflared, managed independently on this server, not in this
+    # repo) should be internet-facing. Reachable from it via shared-proxy.
+    expose:
+      - "3000"
+    environment:
+      NODE_ENV: production
+      TZ: Asia/Bangkok
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: ${DB_DATABASE:-tangpainai}
+      DB_USERNAME: ${DB_USERNAME:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      LINE_CHANNEL_SECRET: ${LINE_CHANNEL_SECRET}
+      LINE_CHANNEL_ACCESS_TOKEN: ${LINE_CHANNEL_ACCESS_TOKEN}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      LINE_MINIAPP_CHANNEL_ID: ${LINE_MINIAPP_CHANNEL_ID}
+      NEXT_PUBLIC_LIFF_ID: ${NEXT_PUBLIC_LIFF_ID}
+    networks:
+      # tangpainai-network: talks to this project's own postgres, invisible
+      # to anything outside this compose file.
+      # shared-proxy: the one network the reverse-proxy stack also joins, so
+      # it can route this app's hostname here. Created once on the host with
+      # `docker network create shared-proxy` — `external: true` means this
+      # compose file expects it to already exist rather than owning it.
+      - tangpainai-network
+      - shared-proxy
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+    name: tangpainai_postgres_data
+    driver: local
+
+networks:
+  tangpainai-network:
+    driver: bridge
+  shared-proxy:
+    external: true

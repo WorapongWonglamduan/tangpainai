@@ -1,0 +1,210 @@
+name: Build and deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Lets you re-run a deploy from the Actions tab without an empty commit.
+  workflow_dispatch:
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+  TZ: Asia/Bangkok
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # prisma.config.ts builds its datasource URL from these at module-load
+    # time — the --url isn't used here, so these must be set before Prisma
+    # commands run at all.
+    env:
+      DB_HOST: localhost
+      DB_PORT: 5437
+      DB_DATABASE: tangpainai_test
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: tangpainai_test
+        ports:
+          - 5437:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      # Applies the committed migration history as-is — no --accept-data-loss,
+      # no interactive prompts, so a migration that can't apply cleanly fails
+      # the job loudly instead of silently reshaping data.
+      - run: npx prisma migrate deploy
+      - run: npx tsc --noEmit
+
+  build-and-push:
+    needs: test
+    # pull_request runs only exist to gate the PR on `test` above — nothing
+    # to build/push/deploy until it's actually merged to main.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # GHCR (and OCI registries generally) require lowercase repository
+      # names — github.repository preserves this repo's actual case.
+      - name: Lowercase the image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          # Next.js inlines NEXT_PUBLIC_* vars at build time — a repo
+          # Variable (Settings → Secrets and variables → Actions → Variables),
+          # not a Secret, since it's safe to expose client-side.
+          build-args: |
+            NEXT_PUBLIC_LIFF_ID=${{ vars.NEXT_PUBLIC_LIFF_ID }}
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:latest-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Applies pending, already-committed migrations (prisma/migrations/*) to
+  # the real DB before the new image (which may expect the new schema) goes
+  # live. Gated behind a GitHub Environment with a required reviewer —
+  # configure this once in Settings → Environments (production-db-migrate) —
+  # so an actual human approves every real-DB schema change from the Actions
+  # tab. Runs `prisma migrate deploy`, which only ever applies migration files
+  # already in the repo and already reviewed as a normal PR diff.
+  migrate-db:
+    needs: build-and-push
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: production-db-migrate
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+
+      # Postgres is bound to 127.0.0.1 on the server on purpose (docker-
+      # compose.yml) — never reachable from the internet directly — so this
+      # runner reaches it the same way a human would for a GUI client: an SSH
+      # tunnel through the server, port-forwarded to Postgres's host port.
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          version: latest
+
+      - name: Open SSH tunnel to the server's Postgres
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh -o StrictHostKeyChecking=no -f -N \
+            -L 5433:127.0.0.1:5437 \
+            -i ~/.ssh/deploy_key \
+            ${{ secrets.SERVER_SSH_USER }}@${{ secrets.SERVER_HOST }}
+          # Give the background tunnel a moment to actually establish before
+          # Prisma tries to connect through it.
+          sleep 3
+
+      - run: npx prisma migrate deploy
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5433
+          DB_DATABASE: ${{ secrets.SERVER_DB_DATABASE }}
+          DB_USERNAME: ${{ secrets.SERVER_DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.SERVER_DB_PASSWORD }}
+
+  deploy:
+    needs: [build-and-push, migrate-db]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          version: latest
+
+      # The server needs its own `git pull` (not just a new image) so that
+      # docker-compose.yml changes ship too, not just app code — the shared
+      # reverse-proxy stack (Caddy/cloudflared) lives outside this repo,
+      # managed independently on the server.
+      - uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_SSH_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            set -e
+            cd ${{ secrets.SERVER_APP_DIR }}
+            git pull
+            docker compose pull app
+            docker compose up -d app
+            docker image prune -f
+
+  notify:
+    needs: [test, build-and-push, migrate-db, deploy]
+    if: always() && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Discord
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then
+            echo "DISCORD_WEBHOOK_URL not set, skipping notification"
+            exit 0
+          fi
+
+          if [ "${{ needs.test.result }}" != "success" ]; then
+            TITLE="Test ล้มเหลว"; COLOR=15158332
+          elif [ "${{ needs['build-and-push'].result }}" != "success" ]; then
+            TITLE="Build/push image ล้มเหลว"; COLOR=15158332
+          elif [ "${{ needs['migrate-db'].result }}" != "success" ]; then
+            TITLE="Migrate DB ล้มเหลว"; COLOR=15158332
+          elif [ "${{ needs.deploy.result }}" != "success" ]; then
+            TITLE="Deploy ล้มเหลว"; COLOR=15158332
+          else
+            TITLE="Deploy สำเร็จ"; COLOR=3066993
+          fi
+
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          COMMIT_URL="${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
+
+          PAYLOAD=$(jq -n \
+            --arg title "$TITLE" \
+            --arg desc "**commit:** [\`${{ github.sha }}\`]($COMMIT_URL)
+          **by:** ${{ github.actor }}
+          [ดู log]($RUN_URL)" \
+            --argjson color "$COLOR" \
+            '{embeds: [{title: $title, description: $desc, color: $color}]}')
+
+          curl -sf -H "Content-Type: application/json" -X POST -d "$PAYLOAD" "$WEBHOOK"
