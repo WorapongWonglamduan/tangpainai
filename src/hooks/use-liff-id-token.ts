@@ -10,7 +10,15 @@ export function useLiffIdToken() {
   useEffect(() => {
     async function init() {
       try {
-        await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID! });
+        const configResponse = await fetch("/api/config/liff");
+        const { liffId } = (await configResponse.json()) as { liffId: string | null };
+
+        if (!liffId) {
+          setError("ไม่พบการตั้งค่า LIFF ID บนเซิร์ฟเวอร์");
+          return;
+        }
+
+        await liff.init({ liffId });
 
         if (!liff.isLoggedIn()) {
           liff.login();
