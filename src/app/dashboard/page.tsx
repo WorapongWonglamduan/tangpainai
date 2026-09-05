@@ -1,8 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { liff } from "@line/liff";
+import Link from "next/link";
 import { EXPENSE_CATEGORY_LABEL_TH, type ExpenseCategoryValue } from "@/constants/expense-category";
+import {
+  DASHBOARD_PERIOD_LABEL_TH,
+  DASHBOARD_PERIOD_OPTIONS,
+  type DashboardPeriodValue,
+} from "@/constants/period";
+import { useLiffIdToken } from "@/hooks/use-liff-id-token";
+import { CenteredMessage } from "@/components/centered-message";
 
 type DashboardExpense = {
   id: string;
@@ -14,52 +21,24 @@ type DashboardExpense = {
 };
 
 type DashboardResponse = {
-  month: string;
-  monthLabel: string;
-  hasPrevMonth: boolean;
-  hasNextMonth: boolean;
+  period: DashboardPeriodValue;
+  anchorDate: string;
+  periodLabel: string;
+  hasPrevPeriod: boolean;
+  hasNextPeriod: boolean;
+  prevAnchorDate: string;
+  nextAnchorDate: string;
   total: number;
   categoryTotals: Record<ExpenseCategoryValue, number>;
   expenses: DashboardExpense[];
 };
 
-function shiftMonthClient(month: string, delta: number): string {
-  const [y, m] = month.split("-").map(Number);
-  const d = new Date(Date.UTC(y, m - 1 + delta, 1));
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
-}
-
 export default function DashboardPage() {
-  const [idToken, setIdToken] = useState<string | null>(null);
-  const [initError, setInitError] = useState<string | null>(null);
-  const [month, setMonth] = useState<string | null>(null);
+  const { idToken, error: initError } = useLiffIdToken();
+  const [period, setPeriod] = useState<DashboardPeriodValue>(DASHBOARD_PERIOD_OPTIONS[3]);
+  const [anchorDate, setAnchorDate] = useState<string | null>(null);
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
-
-  useEffect(() => {
-    async function init() {
-      try {
-        await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID! });
-
-        if (!liff.isLoggedIn()) {
-          liff.login();
-          return;
-        }
-
-        const token = liff.getIDToken();
-        if (!token) {
-          setInitError("ไม่สามารถยืนยันตัวตนผ่าน LINE ได้ ลองเปิดใหม่อีกครั้ง");
-          return;
-        }
-
-        setIdToken(token);
-      } catch {
-        setInitError("เกิดข้อผิดพลาด ลองเปิดหน้านี้ใหม่อีกครั้ง");
-      }
-    }
-
-    init();
-  }, []);
 
   useEffect(() => {
     if (!idToken) return;
@@ -68,8 +47,10 @@ export default function DashboardPage() {
     async function load() {
       setFetchError(null);
       try {
-        const url = month ? `/api/dashboard/summary?month=${month}` : "/api/dashboard/summary";
-        const response = await fetch(url, {
+        const params = new URLSearchParams({ period });
+        if (anchorDate) params.set("date", anchorDate);
+
+        const response = await fetch(`/api/dashboard/summary?${params}`, {
           headers: { Authorization: `Bearer ${idToken}` },
         });
         if (cancelled) return;
@@ -86,7 +67,6 @@ export default function DashboardPage() {
 
         const json = (await response.json()) as DashboardResponse;
         setData(json);
-        if (!month) setMonth(json.month);
       } catch {
         if (!cancelled) setFetchError("โหลดข้อมูลไม่สำเร็จ ลองใหม่อีกครั้ง");
       }
@@ -96,7 +76,12 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [idToken, month]);
+  }, [idToken, period, anchorDate]);
+
+  function selectPeriod(next: DashboardPeriodValue) {
+    setPeriod(next);
+    setAnchorDate(null); // switching period type always starts from "today"
+  }
 
   if (initError) {
     return <CenteredMessage text={initError} />;
@@ -116,20 +101,37 @@ export default function DashboardPage() {
     <main className="mx-auto max-w-md px-4 py-6">
       <h1 className="text-lg font-semibold">สรุปค่าใช้จ่ายบ้าน</h1>
 
-      <div className="mt-4 flex items-center justify-between rounded-lg border border-neutral-200 px-3 py-2 dark:border-neutral-800">
+      <div className="mt-4 flex gap-2 overflow-x-auto">
+        {DASHBOARD_PERIOD_OPTIONS.map((option) => (
+          <button
+            key={option}
+            type="button"
+            onClick={() => selectPeriod(option)}
+            className={`shrink-0 rounded-full px-3 py-1.5 text-sm font-medium ${
+              option === data.period
+                ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
+                : "bg-neutral-100 text-neutral-500 dark:bg-neutral-900"
+            }`}
+          >
+            {DASHBOARD_PERIOD_LABEL_TH[option]}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-3 flex items-center justify-between rounded-lg border border-neutral-200 px-3 py-2 dark:border-neutral-800">
         <button
           type="button"
-          disabled={!data.hasPrevMonth}
-          onClick={() => setMonth(shiftMonthClient(data.month, -1))}
+          disabled={!data.hasPrevPeriod}
+          onClick={() => setAnchorDate(data.prevAnchorDate)}
           className="px-2 py-1 disabled:opacity-30"
         >
           ‹
         </button>
-        <span className="text-sm font-medium">{data.monthLabel}</span>
+        <span className="text-sm font-medium">{data.periodLabel}</span>
         <button
           type="button"
-          disabled={!data.hasNextMonth}
-          onClick={() => setMonth(shiftMonthClient(data.month, 1))}
+          disabled={!data.hasNextPeriod}
+          onClick={() => setAnchorDate(data.nextAnchorDate)}
           className="px-2 py-1 disabled:opacity-30"
         >
           ›
@@ -137,7 +139,7 @@ export default function DashboardPage() {
       </div>
 
       <section className="mt-4 rounded-xl bg-neutral-100 p-4 dark:bg-neutral-900">
-        <p className="text-sm text-neutral-500">ยอดรวมเดือนนี้</p>
+        <p className="text-sm text-neutral-500">ยอดรวมช่วงนี้</p>
         <p className="text-2xl font-bold">{data.total.toLocaleString("th-TH")} บาท</p>
       </section>
 
@@ -157,41 +159,38 @@ export default function DashboardPage() {
       </section>
 
       <section className="mt-6">
-        <h2 className="text-sm font-medium text-neutral-500">รายการเดือนนี้</h2>
+        <h2 className="text-sm font-medium text-neutral-500">รายการช่วงนี้</h2>
         <ul className="mt-2 space-y-2">
           {data.expenses.map((expense) => (
-            <li key={expense.id} className="rounded-lg border border-neutral-200 p-3 text-sm dark:border-neutral-800">
-              <div className="flex justify-between">
-                <span className="font-medium">{EXPENSE_CATEGORY_LABEL_TH[expense.category]}</span>
-                <span>{Number(expense.amount).toLocaleString("th-TH")} บาท</span>
-              </div>
-              <div className="mt-1 flex justify-between text-xs text-neutral-500">
-                <span>
-                  {expense.payerName}
-                  {expense.note ? ` · ${expense.note}` : ""}
-                </span>
-                <span>
-                  {new Date(expense.createdAt).toLocaleString("th-TH", {
-                    timeZone: "Asia/Bangkok",
-                    day: "2-digit",
-                    month: "2-digit",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </span>
-              </div>
+            <li key={expense.id}>
+              <Link
+                href={`/dashboard/expense/${expense.id}`}
+                className="block rounded-lg border border-neutral-200 p-3 text-sm active:bg-neutral-50 dark:border-neutral-800 dark:active:bg-neutral-900"
+              >
+                <div className="flex justify-between">
+                  <span className="font-medium">{EXPENSE_CATEGORY_LABEL_TH[expense.category]}</span>
+                  <span>{Number(expense.amount).toLocaleString("th-TH")} บาท</span>
+                </div>
+                <div className="mt-1 flex justify-between text-xs text-neutral-500">
+                  <span>
+                    {expense.payerName}
+                    {expense.note ? ` · ${expense.note}` : ""}
+                  </span>
+                  <span>
+                    {new Date(expense.createdAt).toLocaleString("th-TH", {
+                      timeZone: "Asia/Bangkok",
+                      day: "2-digit",
+                      month: "2-digit",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                </div>
+              </Link>
             </li>
           ))}
         </ul>
       </section>
-    </main>
-  );
-}
-
-function CenteredMessage({ text }: { text: string }) {
-  return (
-    <main className="flex min-h-screen items-center justify-center px-6 text-center text-sm text-neutral-500">
-      {text}
     </main>
   );
 }

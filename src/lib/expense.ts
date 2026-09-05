@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { HISTORY_LIST_SIZE } from "@/constants/bot-commands";
+import type { ExpenseCategoryValue } from "@/constants/expense-category";
 import type { Expense } from "@/generated/prisma/client";
 
 export async function confirmExpenseBatch(batchId: string, memberId: string) {
@@ -72,6 +73,39 @@ export async function cancelExpenseBatchesByIndex(
   });
 
   return toCancel;
+}
+
+// Scoped to householdId so a member can only reach expenses in their own household.
+export async function getExpenseForHousehold(householdId: string, expenseId: string) {
+  return prisma.expense.findFirst({
+    where: { id: expenseId, householdId },
+    include: { paidByMember: true },
+  });
+}
+
+export type ExpenseEditableFields = {
+  category: ExpenseCategoryValue;
+  amount: number;
+  note: string | null;
+};
+
+// Corrects a mis-categorized or mis-read expense (e.g. the AI picked the wrong
+// category or misread the amount from a slip). Returns null if the expense
+// doesn't exist in this household.
+export async function updateExpense(householdId: string, expenseId: string, updates: ExpenseEditableFields) {
+  const result = await prisma.expense.updateMany({
+    where: { id: expenseId, householdId },
+    data: updates,
+  });
+
+  if (result.count === 0) {
+    return null;
+  }
+
+  return prisma.expense.findUnique({
+    where: { id: expenseId },
+    include: { paidByMember: true },
+  });
 }
 
 export async function cancelLatestExpenseBatch(memberId: string) {

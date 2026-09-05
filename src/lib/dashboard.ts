@@ -1,43 +1,138 @@
 import { prisma } from "@/lib/prisma";
 import { EXPENSE_CATEGORY, type ExpenseCategoryValue } from "@/constants/expense-category";
+import { DASHBOARD_PERIOD, type DashboardPeriodValue } from "@/constants/period";
 
-// "YYYY-MM" in Asia/Bangkok, independent of the host machine's timezone.
-export function getBangkokMonth(date: Date = new Date()): string {
+const BANGKOK_TZ = "Asia/Bangkok";
+// A known Monday, used only as a stable reference point so biweekly blocks
+// land on the same 14-day boundaries every time (never shown to users).
+const BIWEEKLY_EPOCH = "2024-01-01";
+
+// "YYYY-MM-DD" in Asia/Bangkok, independent of the host machine's timezone.
+export function getBangkokDateString(date: Date = new Date()): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Bangkok",
+    timeZone: BANGKOK_TZ,
     year: "numeric",
     month: "2-digit",
+    day: "2-digit",
   }).formatToParts(date);
   const year = parts.find((p) => p.type === "year")!.value;
   const month = parts.find((p) => p.type === "month")!.value;
-  return `${year}-${month}`;
+  const day = parts.find((p) => p.type === "day")!.value;
+  return `${year}-${month}-${day}`;
 }
 
-export function shiftMonth(month: string, delta: number): string {
-  const [y, m] = month.split("-").map(Number);
-  const d = new Date(Date.UTC(y, m - 1 + delta, 1));
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+function parseDateParts(dateStr: string): { y: number; m: number; d: number } {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return { y, m, d };
 }
 
-function monthRangeBangkok(month: string): { start: Date; end: Date } {
-  const [y, m] = month.split("-").map(Number);
-  // Date.UTC rolls the date back correctly for a negative hour, giving the UTC
-  // instant of Bangkok (UTC+7) midnight on the 1st without a timezone library.
-  const start = new Date(Date.UTC(y, m - 1, 1, -7, 0, 0));
-  const end = new Date(Date.UTC(y, m, 1, -7, 0, 0));
-  return { start, end };
+function formatDateString(y: number, m: number, d: number): string {
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
-function formatMonthLabelTH(month: string): string {
-  const [y, m] = month.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("th-TH", {
-    year: "numeric",
-    month: "long",
+function addDays(dateStr: string, days: number): string {
+  const { y, m, d } = parseDateParts(dateStr);
+  const date = new Date(Date.UTC(y, m - 1, d + days));
+  return formatDateString(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate());
+}
+
+function daysBetween(fromDateStr: string, toDateStr: string): number {
+  const from = parseDateParts(fromDateStr);
+  const to = parseDateParts(toDateStr);
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return Math.round((Date.UTC(to.y, to.m - 1, to.d) - Date.UTC(from.y, from.m - 1, from.d)) / msPerDay);
+}
+
+// The UTC instant of Bangkok (UTC+7) midnight for a "YYYY-MM-DD" date string.
+function bangkokMidnight(dateStr: string): Date {
+  const { y, m, d } = parseDateParts(dateStr);
+  return new Date(Date.UTC(y, m - 1, d, -7, 0, 0));
+}
+
+// Monday of the ISO week containing dateStr.
+function startOfIsoWeek(dateStr: string): string {
+  const { y, m, d } = parseDateParts(dateStr);
+  const jsDayOfWeek = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0=Sun..6=Sat
+  const isoDayOfWeek = jsDayOfWeek === 0 ? 7 : jsDayOfWeek; // 1=Mon..7=Sun
+  return addDays(dateStr, -(isoDayOfWeek - 1));
+}
+
+function startOfBiweekly(dateStr: string): string {
+  const weekStart = startOfIsoWeek(dateStr);
+  const blockIndex = Math.floor(daysBetween(BIWEEKLY_EPOCH, weekStart) / 14);
+  return addDays(BIWEEKLY_EPOCH, blockIndex * 14);
+}
+
+function startOfMonth(dateStr: string): string {
+  const { y, m } = parseDateParts(dateStr);
+  return formatDateString(y, m, 1);
+}
+
+function addMonths(dateStr: string, months: number): string {
+  const { y, m, d } = parseDateParts(dateStr);
+  const date = new Date(Date.UTC(y, m - 1 + months, d));
+  return formatDateString(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate());
+}
+
+// The exclusive [startDate, endDate) range for the period containing anchorDate.
+// Every period type produces contiguous, non-overlapping blocks, so shifting the
+// anchor to endDate (next) or startDate - 1 day (prev) always lands in the
+// adjacent block regardless of period type.
+function getPeriodRange(period: DashboardPeriodValue, anchorDate: string): { startDate: string; endDate: string } {
+  switch (period) {
+    case DASHBOARD_PERIOD.DAY:
+      return { startDate: anchorDate, endDate: addDays(anchorDate, 1) };
+    case DASHBOARD_PERIOD.WEEK: {
+      const startDate = startOfIsoWeek(anchorDate);
+      return { startDate, endDate: addDays(startDate, 7) };
+    }
+    case DASHBOARD_PERIOD.BIWEEKLY: {
+      const startDate = startOfBiweekly(anchorDate);
+      return { startDate, endDate: addDays(startDate, 14) };
+    }
+    case DASHBOARD_PERIOD.MONTH: {
+      const startDate = startOfMonth(anchorDate);
+      return { startDate, endDate: addMonths(startDate, 1) };
+    }
+  }
+}
+
+function formatShortDateTH(dateStr: string, withYear: boolean): string {
+  const { y, m, d } = parseDateParts(dateStr);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("th-TH", {
+    day: "numeric",
+    month: "short",
+    year: withYear ? "numeric" : undefined,
     timeZone: "UTC",
   });
 }
 
-export async function getDashboardData(lineUserId: string, month?: string) {
+function formatPeriodLabelTH(period: DashboardPeriodValue, startDate: string, endDateExclusive: string): string {
+  if (period === DASHBOARD_PERIOD.MONTH) {
+    const { y, m } = parseDateParts(startDate);
+    return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("th-TH", {
+      year: "numeric",
+      month: "long",
+      timeZone: "UTC",
+    });
+  }
+
+  if (period === DASHBOARD_PERIOD.DAY) {
+    return formatShortDateTH(startDate, true);
+  }
+
+  // WEEK / BIWEEKLY: endDateExclusive is the day after the period, so the
+  // last visible day is one day before it.
+  const lastDate = addDays(endDateExclusive, -1);
+  const sameYear = parseDateParts(startDate).y === parseDateParts(lastDate).y;
+  return `${formatShortDateTH(startDate, !sameYear)} – ${formatShortDateTH(lastDate, true)}`;
+}
+
+export async function getDashboardData(
+  lineUserId: string,
+  period: DashboardPeriodValue = DASHBOARD_PERIOD.MONTH,
+  anchorDate?: string,
+) {
   const member = await prisma.householdMember.findUnique({
     where: { lineUserId },
     include: { household: true },
@@ -47,8 +142,12 @@ export async function getDashboardData(lineUserId: string, month?: string) {
     return null;
   }
 
-  const targetMonth = month ?? getBangkokMonth();
-  const { start, end } = monthRangeBangkok(targetMonth);
+  const targetAnchor = anchorDate ?? getBangkokDateString();
+  const { startDate, endDate } = getPeriodRange(period, targetAnchor);
+  const start = bangkokMidnight(startDate);
+  const end = bangkokMidnight(endDate);
+
+  const currentPeriod = getPeriodRange(period, getBangkokDateString());
 
   const [expenses, earlierCount] = await Promise.all([
     prisma.expense.findMany({
@@ -79,10 +178,13 @@ export async function getDashboardData(lineUserId: string, month?: string) {
   return {
     householdId: member.household.id,
     currentMemberId: member.id,
-    month: targetMonth,
-    monthLabel: formatMonthLabelTH(targetMonth),
-    hasPrevMonth: earlierCount > 0,
-    hasNextMonth: targetMonth < getBangkokMonth(),
+    period,
+    anchorDate: startDate,
+    periodLabel: formatPeriodLabelTH(period, startDate, endDate),
+    hasPrevPeriod: earlierCount > 0,
+    hasNextPeriod: startDate < currentPeriod.startDate,
+    prevAnchorDate: addDays(startDate, -1),
+    nextAnchorDate: endDate,
     total,
     categoryTotals,
     expenses,

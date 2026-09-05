@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { getDashboardData } from "@/lib/dashboard";
 import { verifyLiffIdToken } from "@/lib/liff-auth";
+import { DASHBOARD_PERIOD, type DashboardPeriodValue } from "@/constants/period";
 
-const MONTH_PATTERN = /^\d{4}-\d{2}$/;
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const VALID_PERIODS = new Set<string>(Object.values(DASHBOARD_PERIOD));
 
 export async function GET(request: Request) {
   const authHeader = request.headers.get("authorization");
@@ -18,19 +20,27 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  const monthParam = searchParams.get("month");
-  const month = monthParam && MONTH_PATTERN.test(monthParam) ? monthParam : undefined;
 
-  const data = await getDashboardData(lineUserId, month);
+  const periodParam = searchParams.get("period");
+  const period: DashboardPeriodValue =
+    periodParam && VALID_PERIODS.has(periodParam) ? (periodParam as DashboardPeriodValue) : DASHBOARD_PERIOD.MONTH;
+
+  const dateParam = searchParams.get("date");
+  const anchorDate = dateParam && DATE_PATTERN.test(dateParam) ? dateParam : undefined;
+
+  const data = await getDashboardData(lineUserId, period, anchorDate);
   if (!data) {
     return NextResponse.json({ error: "not a member of any household yet" }, { status: 404 });
   }
 
   return NextResponse.json({
-    month: data.month,
-    monthLabel: data.monthLabel,
-    hasPrevMonth: data.hasPrevMonth,
-    hasNextMonth: data.hasNextMonth,
+    period: data.period,
+    anchorDate: data.anchorDate,
+    periodLabel: data.periodLabel,
+    hasPrevPeriod: data.hasPrevPeriod,
+    hasNextPeriod: data.hasNextPeriod,
+    prevAnchorDate: data.prevAnchorDate,
+    nextAnchorDate: data.nextAnchorDate,
     total: data.total,
     categoryTotals: data.categoryTotals,
     expenses: data.expenses.map((expense) => ({
