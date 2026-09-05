@@ -15,6 +15,7 @@ import {
 } from "@/constants/period";
 import { useLiffIdToken } from "@/hooks/use-liff-id-token";
 import { CenteredMessage } from "@/components/centered-message";
+import { CalendarDatePicker } from "@/components/calendar-date-picker";
 
 type DashboardExpense = {
   id: string;
@@ -145,15 +146,9 @@ export default function DashboardPage() {
         </button>
       </div>
 
-      <label className="mt-2 flex items-center gap-2 rounded-xl bg-surface-container-lowest px-3 py-2 text-sm shadow-sm">
-        <span className="text-on-surface-variant">📅 ไปวันที่</span>
-        <input
-          type="date"
-          value={data.anchorDate}
-          onChange={(e) => e.target.value && setAnchorDate(e.target.value)}
-          className="flex-1 bg-transparent text-on-surface outline-none [color-scheme:light] dark:[color-scheme:dark]"
-        />
-      </label>
+      <div className="mt-2">
+        <CalendarDatePicker value={data.anchorDate} onChange={setAnchorDate} />
+      </div>
 
       <section className="mt-4 rounded-xl bg-surface-container-lowest p-4 shadow-sm">
         <p className="text-sm text-on-surface-variant">ยอดรวมช่วงนี้</p>
