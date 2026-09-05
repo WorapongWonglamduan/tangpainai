@@ -160,6 +160,7 @@ export default function DashboardPage() {
           <CalendarDatePicker
             value={data.customEnd ?? data.anchorDate}
             onChange={setCustomEnd}
+            align="right"
             className="flex flex-1 items-center gap-2 rounded-xl bg-surface-container-lowest px-3 py-2 text-sm shadow-sm"
           />
         </div>
@@ -177,7 +178,7 @@ export default function DashboardPage() {
             value={data.anchorDate}
             onChange={setAnchorDate}
             label={data.periodLabel}
-            className="flex flex-1 items-center justify-center gap-1.5 text-sm font-medium"
+            className="flex min-w-0 flex-1 items-center justify-center gap-1.5 text-sm font-medium"
           />
           <button
             type="button"

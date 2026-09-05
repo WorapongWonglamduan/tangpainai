@@ -8,6 +8,8 @@ type CalendarDatePickerProps = {
   /** Text shown on the trigger button. Defaults to a short formatted `value`. */
   label?: string;
   className?: string;
+  /** Which edge the popover hangs from — "right" keeps it on-screen when the trigger sits near the right edge. */
+  align?: "left" | "right";
 };
 
 const WEEKDAY_LABELS_TH = ["จ", "อ", "พ", "พฤ", "ศ", "ส", "อา"];
@@ -41,7 +43,7 @@ function formatShortThai(dateStr: string): string {
   return `${d} ${MONTH_LABELS_TH[m - 1].slice(0, 3)}. ${y + BUDDHIST_ERA_OFFSET}`;
 }
 
-export function CalendarDatePicker({ value, onChange, label, className }: CalendarDatePickerProps) {
+export function CalendarDatePicker({ value, onChange, label, className, align = "left" }: CalendarDatePickerProps) {
   const selected = parseDateParts(value);
   const [open, setOpen] = useState(false);
   const [viewYear, setViewYear] = useState(selected.y);
@@ -92,20 +94,26 @@ export function CalendarDatePicker({ value, onChange, label, className }: Calend
   ];
 
   return (
-    <div className="relative">
+    <div className="relative flex-1">
       <button
         type="button"
         onClick={() => (open ? setOpen(false) : openCalendar())}
-        className={className ?? "flex w-full items-center gap-2 rounded-xl bg-surface-container-lowest px-3 py-2 text-sm shadow-sm"}
+        className={
+          className ?? "flex w-full items-center gap-2 rounded-xl bg-surface-container-lowest px-3 py-2 text-sm shadow-sm"
+        }
       >
         <span className="text-on-surface-variant">📅</span>
-        <span className="font-medium">{label ?? formatShortThai(value)}</span>
+        <span className="truncate font-medium">{label ?? formatShortThai(value)}</span>
       </button>
 
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 right-0 z-50 mt-2 rounded-xl bg-surface-container-lowest p-3 shadow-lg">
+          <div
+            className={`absolute z-50 mt-2 w-72 max-w-[85vw] rounded-xl bg-surface-container-lowest p-3 shadow-lg ${
+              align === "right" ? "right-0" : "left-0"
+            }`}
+          >
             <div className="flex items-center justify-between px-1">
               <button
                 type="button"
