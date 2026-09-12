@@ -25,4 +25,4 @@ export const DASHBOARD_PERIOD_OPTIONS: DashboardPeriodValue[] = [
 ];
 
 // Longest span selectable in a custom range, to keep the summary query bounded.
-export const CUSTOM_RANGE_MAX_DAYS = 366;
+export const CUSTOM_RANGE_MAX_DAYS = 731; // ~2 years (accounts for a possible leap year)

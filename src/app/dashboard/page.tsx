@@ -438,13 +438,12 @@ export default function DashboardPage() {
                         onChange={setDraftEnd}
                         disabled={isLoading}
                         ariaLabel="เลือกวันสิ้นสุด"
-                        align="right"
                         className="flex min-h-11 w-full items-center gap-1.5 rounded-xl border border-outline-variant/70 bg-surface-container-lowest px-2.5 text-left text-xs transition-colors hover:border-primary disabled:opacity-50"
                       />
                     </label>
                   </div>
                   <div className="mt-2.5 flex items-center justify-between gap-3">
-                    <p className="text-[10px] text-on-surface-variant">เลือกได้สูงสุด 366 วัน</p>
+                    <p className="text-[10px] text-on-surface-variant">เลือกได้สูงสุด 2 ปี</p>
                     <button
                       type="button"
                       disabled={!customRangeChanged || isLoading}
