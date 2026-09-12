@@ -6,3 +6,11 @@ export const CANCEL_BY_INDEX_PATTERN = /^ยกเลิก[\s,]+([\d\s,]+)$/;
 export const HISTORY_COMMANDS = ["ประวัติ", "ดูประวัติ", "ประวัติรายการ"] as const;
 
 export const HISTORY_LIST_SIZE = 10;
+
+// Postback data sent by the rich menu's "ประวัติ" and "ยกเลิก" tiles — routed
+// through the same handlers as the equivalent typed commands above, so a
+// menu tap and typing "ประวัติ" always produce identical behavior.
+export const RICH_MENU_POSTBACK = {
+  HISTORY: "richmenu:history",
+  CANCEL_LATEST: "richmenu:cancel_latest",
+} as const;

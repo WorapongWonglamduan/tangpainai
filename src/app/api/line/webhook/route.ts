@@ -23,7 +23,12 @@ import {
   type ExpenseCategoryValue,
   type ExpenseSourceValue,
 } from "@/constants/expense-category";
-import { CANCEL_BY_INDEX_PATTERN, CANCEL_COMMANDS, HISTORY_COMMANDS } from "@/constants/bot-commands";
+import {
+  CANCEL_BY_INDEX_PATTERN,
+  CANCEL_COMMANDS,
+  HISTORY_COMMANDS,
+  RICH_MENU_POSTBACK,
+} from "@/constants/bot-commands";
 import type { Expense } from "@/generated/prisma/client";
 
 const channelSecret = process.env.LINE_CHANNEL_SECRET!;
@@ -202,6 +207,17 @@ async function handlePostback(
   replyToken: string,
   householdMember: HouseholdMemberContext,
 ) {
+  // Rich menu tiles reuse the exact same handlers as their typed-command
+  // equivalents, so a tap and typing "ประวัติ"/"ยกเลิก" behave identically.
+  if (data === RICH_MENU_POSTBACK.HISTORY) {
+    await handleHistoryCommand(replyToken, householdMember);
+    return;
+  }
+  if (data === RICH_MENU_POSTBACK.CANCEL_LATEST) {
+    await handleCancelCommand(replyToken, householdMember);
+    return;
+  }
+
   const [action, batchId] = data.split(":");
   const payerName = householdMember.member.displayName ?? "ไม่ทราบชื่อ";
 
