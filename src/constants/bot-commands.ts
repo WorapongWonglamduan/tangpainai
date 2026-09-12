@@ -7,10 +7,14 @@ export const HISTORY_COMMANDS = ["ประวัติ", "ดูประวั
 
 export const HISTORY_LIST_SIZE = 10;
 
-// Postback data sent by the rich menu's "ประวัติ" and "ยกเลิก" tiles — routed
-// through the same handlers as the equivalent typed commands above, so a
-// menu tap and typing "ประวัติ" always produce identical behavior.
+// Postback data sent by the rich menu's "วิธีใช้งาน" tile.
 export const RICH_MENU_POSTBACK = {
-  HISTORY: "richmenu:history",
-  CANCEL_LATEST: "richmenu:cancel_latest",
+  USAGE_GUIDE: "richmenu:usage_guide",
 } as const;
+
+// Postback data for the cancel confirmation step (typed "ยกเลิก" / "ยกเลิก N"
+// no longer delete immediately — they preview, then wait for this postback).
+// Separate prefix from the pending-expense "confirm:"/"reject:" postbacks
+// used right after saving, so the two confirm flows can never collide.
+export const CANCEL_CONFIRM_PREFIX = "cancel_confirm:";
+export const CANCEL_REJECT = "cancel_reject";

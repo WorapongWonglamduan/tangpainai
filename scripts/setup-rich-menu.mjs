@@ -1,5 +1,5 @@
 // One-off setup script — creates the bot's default rich menu (ดูสรุป /
-// ประวัติ / ยกเลิก) and uploads its image. Run manually whenever the menu
+// วิธีใช้งาน) and uploads its image. Run manually whenever the menu
 // image or actions change; this is not part of the request-serving app.
 //
 // Usage:
@@ -29,7 +29,7 @@ const blobClient = new messagingApi.MessagingApiBlobClient({ channelAccessToken 
 const IMAGE_PATH = new URL("../public/rich-menu/main-menu.png", import.meta.url);
 const WIDTH = 2500;
 const HEIGHT = 843;
-const TILE_WIDTH = Math.floor(WIDTH / 3);
+const TILE_WIDTH = WIDTH / 2;
 
 async function main() {
   const richMenu = await client.createRichMenu({
@@ -43,12 +43,8 @@ async function main() {
         action: { type: "uri", uri: `https://liff.line.me/${liffId}` },
       },
       {
-        bounds: { x: TILE_WIDTH, y: 0, width: TILE_WIDTH, height: HEIGHT },
-        action: { type: "postback", data: "richmenu:history", displayText: "ประวัติ" },
-      },
-      {
-        bounds: { x: TILE_WIDTH * 2, y: 0, width: WIDTH - TILE_WIDTH * 2, height: HEIGHT },
-        action: { type: "postback", data: "richmenu:cancel_latest", displayText: "ยกเลิก" },
+        bounds: { x: TILE_WIDTH, y: 0, width: WIDTH - TILE_WIDTH, height: HEIGHT },
+        action: { type: "postback", data: "richmenu:usage_guide", displayText: "วิธีใช้งาน" },
       },
     ],
   });

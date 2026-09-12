@@ -8,10 +8,11 @@ import {
 } from "@/lib/expense-extraction";
 import type { ExpenseExtraction } from "@/lib/expense-extraction-schema";
 import {
-  cancelExpenseBatchesByIndex,
-  cancelLatestExpenseBatch,
+  cancelExpensesByIds,
   confirmExpenseBatch,
   listRecentConfirmedBatches,
+  previewExpenseBatchesByIndex,
+  previewLatestExpenseBatch,
   rejectExpenseBatch,
 } from "@/lib/expense";
 import { getOrCreateHouseholdMember, type HouseholdMemberContext } from "@/lib/household";
@@ -26,12 +27,30 @@ import {
 import {
   CANCEL_BY_INDEX_PATTERN,
   CANCEL_COMMANDS,
+  CANCEL_CONFIRM_PREFIX,
+  CANCEL_REJECT,
   HISTORY_COMMANDS,
   RICH_MENU_POSTBACK,
 } from "@/constants/bot-commands";
 import type { Expense } from "@/generated/prisma/client";
 
 const channelSecret = process.env.LINE_CHANNEL_SECRET!;
+
+const USAGE_GUIDE_TEXT = `📖 วิธีใช้งาน
+
+💾 บันทึกค่าใช้จ่าย
+พิมพ์ข้อความบอกรายการและจำนวนเงิน เช่น "ค่าไฟ 850" หรือส่งรูปสลิป/ใบเสร็จมาได้เลย บอทจะถามยืนยันก่อนบันทึกทุกครั้ง
+
+📋 ดูประวัติ
+พิมพ์ "ประวัติ" เพื่อดูรายการล่าสุด 10 รายการ พร้อมเลขลำดับ
+
+❌ ยกเลิกรายการ
+- พิมพ์ "ยกเลิก" เพื่อยกเลิกรายการล่าสุด
+- พิมพ์ "ยกเลิก [เลข]" เพื่อยกเลิกรายการตามลำดับที่ดูจาก "ประวัติ" เช่น "ยกเลิก 3" หรือ "ยกเลิก 2,3"
+ทุกครั้งบอทจะถามยืนยันก่อนลบจริง
+
+📊 ดูสรุปค่าใช้จ่าย
+กดปุ่ม "ดูสรุป" ที่เมนูด้านล่างนี้ เพื่อเปิดหน้าสรุปค่าใช้จ่ายแบบละเอียด`;
 
 export async function POST(request: Request) {
   const body = await request.text();
@@ -128,28 +147,12 @@ async function handleImageMessage(
 }
 
 async function handleCancelCommand(replyToken: string, householdMember: HouseholdMemberContext) {
-  const cancelled = await cancelLatestExpenseBatch(householdMember.member.id);
-
-  if (cancelled.length === 0) {
-    await lineClient.replyMessage({
-      replyToken,
-      messages: [{ type: "text", text: "ไม่พบรายการล่าสุดของคุณที่จะยกเลิก" }],
-    });
-    return;
-  }
-
-  const header =
-    cancelled.length > 1 ? `ยกเลิกรายการล่าสุดแล้ว ❌ (${cancelled.length} รายการ)` : "ยกเลิกรายการล่าสุดแล้ว ❌";
-  const payerName = householdMember.member.displayName ?? "ไม่ทราบชื่อ";
-
-  await lineClient.replyMessage({
-    replyToken,
-    messages: [{ type: "text", text: `${header}\nโดย: ${payerName}\n${formatItemsList(cancelled)}` }],
-  });
+  const toCancel = await previewLatestExpenseBatch(householdMember.household.id, householdMember.member.id);
+  await replyCancelConfirmation(replyToken, toCancel, "ไม่พบรายการล่าสุดของคุณที่จะยกเลิก");
 }
 
 async function handleHistoryCommand(replyToken: string, householdMember: HouseholdMemberContext) {
-  const batches = await listRecentConfirmedBatches(householdMember.member.id);
+  const batches = await listRecentConfirmedBatches(householdMember.household.id, householdMember.member.id);
 
   if (batches.length === 0) {
     await lineClient.replyMessage({
@@ -177,26 +180,78 @@ async function handleCancelByIndexCommand(
   replyToken: string,
   householdMember: HouseholdMemberContext,
 ) {
-  const cancelled = await cancelExpenseBatchesByIndex(householdMember.member.id, indices);
+  const toCancel = await previewExpenseBatchesByIndex(
+    householdMember.household.id,
+    householdMember.member.id,
+    indices,
+  );
+  await replyCancelConfirmation(
+    replyToken,
+    toCancel,
+    'ไม่พบรายการตามลำดับที่ระบุ ลองพิมพ์ "ประวัติ" เพื่อดูลำดับล่าสุดอีกครั้ง',
+  );
+}
 
-  if (cancelled.length === 0) {
+// Shared by both cancel entry points ("ยกเลิก" and "ยกเลิก <index>") — shows
+// what would be cancelled and waits for an explicit confirm postback before
+// actually deleting anything, mirroring the same confirm/reject pattern used
+// right after saving a new expense.
+const MAX_CANCEL_CONFIRM_ITEMS = 10;
+
+async function replyCancelConfirmation(
+  replyToken: string,
+  toCancel: Expense[],
+  emptyMessage: string,
+) {
+  if (toCancel.length === 0) {
+    await lineClient.replyMessage({
+      replyToken,
+      messages: [{ type: "text", text: emptyMessage }],
+    });
+    return;
+  }
+
+  // Postback data has a 300-character limit; a cuid is ~25 chars, so this
+  // comfortably covers realistic multi-item cancellations without risking
+  // an oversized payload.
+  if (toCancel.length > MAX_CANCEL_CONFIRM_ITEMS) {
     await lineClient.replyMessage({
       replyToken,
       messages: [
-        { type: "text", text: 'ไม่พบรายการตามลำดับที่ระบุ ลองพิมพ์ "ประวัติ" เพื่อดูลำดับล่าสุดอีกครั้ง' },
+        {
+          type: "text",
+          text: `พบ ${toCancel.length} รายการ ยกเลิกได้ครั้งละไม่เกิน ${MAX_CANCEL_CONFIRM_ITEMS} รายการ ลองระบุลำดับให้น้อยลง`,
+        },
       ],
     });
     return;
   }
 
-  const payerName = householdMember.member.displayName ?? "ไม่ทราบชื่อ";
+  const data = `${CANCEL_CONFIRM_PREFIX}${toCancel.map((expense) => expense.id).join(",")}`;
+  const summary = formatItemsList(toCancel);
+  // The confirm template's `text` field has a 240-character limit — truncate
+  // the preview rather than risk the whole reply failing on a long list of
+  // items with long notes. altText (the notification/desktop-fallback text)
+  // keeps the full summary since it isn't subject to that limit.
+  const CONFIRM_TEXT_LIMIT = 220;
+  const promptText = `ต้องการยกเลิกรายการนี้ใช่ไหม?\n${summary}`;
+  const truncatedPrompt =
+    promptText.length > CONFIRM_TEXT_LIMIT ? `${promptText.slice(0, CONFIRM_TEXT_LIMIT - 1)}…` : promptText;
 
   await lineClient.replyMessage({
     replyToken,
     messages: [
       {
-        type: "text",
-        text: `ยกเลิกแล้ว ❌ (${cancelled.length} รายการ)\nโดย: ${payerName}\n${formatItemsList(cancelled)}`,
+        type: "template",
+        altText: `ยืนยันยกเลิก - ${summary}`,
+        template: {
+          type: "confirm",
+          text: truncatedPrompt,
+          actions: [
+            { type: "postback", label: "ยืนยัน", data, displayText: "ยืนยันยกเลิก" },
+            { type: "postback", label: "ไม่ใช่", data: CANCEL_REJECT, displayText: "ไม่ยกเลิก" },
+          ],
+        },
       },
     ],
   });
@@ -207,14 +262,41 @@ async function handlePostback(
   replyToken: string,
   householdMember: HouseholdMemberContext,
 ) {
-  // Rich menu tiles reuse the exact same handlers as their typed-command
-  // equivalents, so a tap and typing "ประวัติ"/"ยกเลิก" behave identically.
-  if (data === RICH_MENU_POSTBACK.HISTORY) {
-    await handleHistoryCommand(replyToken, householdMember);
+  if (data === RICH_MENU_POSTBACK.USAGE_GUIDE) {
+    await lineClient.replyMessage({ replyToken, messages: [{ type: "text", text: USAGE_GUIDE_TEXT }] });
     return;
   }
-  if (data === RICH_MENU_POSTBACK.CANCEL_LATEST) {
-    await handleCancelCommand(replyToken, householdMember);
+
+  if (data === CANCEL_REJECT) {
+    await lineClient.replyMessage({
+      replyToken,
+      messages: [{ type: "text", text: "ไม่ได้ยกเลิกรายการนี้" }],
+    });
+    return;
+  }
+
+  if (data.startsWith(CANCEL_CONFIRM_PREFIX)) {
+    const expenseIds = data.slice(CANCEL_CONFIRM_PREFIX.length).split(",").filter(Boolean);
+    const cancelled = await cancelExpensesByIds(
+      householdMember.household.id,
+      householdMember.member.id,
+      expenseIds,
+    );
+
+    if (cancelled.length === 0) {
+      await lineClient.replyMessage({
+        replyToken,
+        messages: [{ type: "text", text: "ไม่พบรายการที่จะยกเลิก (อาจถูกยกเลิกไปแล้ว)" }],
+      });
+      return;
+    }
+
+    const payerName = householdMember.member.displayName ?? "ไม่ทราบชื่อ";
+    const header = cancelled.length > 1 ? `ยกเลิกแล้ว ❌ (${cancelled.length} รายการ)` : "ยกเลิกแล้ว ❌";
+    await lineClient.replyMessage({
+      replyToken,
+      messages: [{ type: "text", text: `${header}\nโดย: ${payerName}\n${formatItemsList(cancelled)}` }],
+    });
     return;
   }
 
@@ -222,7 +304,7 @@ async function handlePostback(
   const payerName = householdMember.member.displayName ?? "ไม่ทราบชื่อ";
 
   if (action === "confirm" && batchId) {
-    const items = await confirmExpenseBatch(batchId, householdMember.member.id);
+    const items = await confirmExpenseBatch(householdMember.household.id, batchId, householdMember.member.id);
 
     if (items.length === 0) {
       await lineClient.replyMessage({
@@ -241,7 +323,7 @@ async function handlePostback(
   }
 
   if (action === "reject" && batchId) {
-    const deletedCount = await rejectExpenseBatch(batchId, householdMember.member.id);
+    const deletedCount = await rejectExpenseBatch(householdMember.household.id, batchId, householdMember.member.id);
     await lineClient.replyMessage({
       replyToken,
       messages: [

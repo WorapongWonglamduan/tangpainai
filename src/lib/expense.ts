@@ -3,9 +3,19 @@ import { HISTORY_LIST_SIZE } from "@/constants/bot-commands";
 import type { ExpenseCategoryValue } from "@/constants/expense-category";
 import type { Expense } from "@/generated/prisma/client";
 
-export async function confirmExpenseBatch(batchId: string, memberId: string) {
+// Every query below is scoped by BOTH householdId and paidByMemberId, not
+// memberId alone. A member row is already unique per household (see the
+// (householdId, lineUserId) compound key in the schema), so this is
+// defense-in-depth rather than a fix for cross-room leakage that could
+// otherwise occur — but it makes the room boundary explicit at the query
+// level instead of relying on callers always resolving the right memberId.
+export async function confirmExpenseBatch(
+  householdId: string,
+  batchId: string,
+  memberId: string,
+) {
   const items = await prisma.expense.findMany({
-    where: { batchId, paidByMemberId: memberId, confirmed: false },
+    where: { householdId, batchId, paidByMemberId: memberId, confirmed: false },
   });
 
   if (items.length === 0) {
@@ -13,30 +23,36 @@ export async function confirmExpenseBatch(batchId: string, memberId: string) {
   }
 
   await prisma.expense.updateMany({
-    where: { batchId, paidByMemberId: memberId },
+    where: { householdId, batchId, paidByMemberId: memberId },
     data: { confirmed: true },
   });
 
   return items;
 }
 
-export async function rejectExpenseBatch(batchId: string, memberId: string): Promise<number> {
+export async function rejectExpenseBatch(
+  householdId: string,
+  batchId: string,
+  memberId: string,
+): Promise<number> {
   const result = await prisma.expense.deleteMany({
-    where: { batchId, paidByMemberId: memberId, confirmed: false },
+    where: { householdId, batchId, paidByMemberId: memberId, confirmed: false },
   });
 
   return result.count;
 }
 
-// Groups the member's recent confirmed rows into their batches, oldest-first, so the
-// displayed "1, 2, 3..." numbering stays stable between a ประวัติ listing and a follow-up
-// "ยกเลิก <index>" command run right after (as long as nothing new was saved in between).
+// Groups the member's recent confirmed rows (within this household) into
+// their batches, oldest-first, so the displayed "1, 2, 3..." numbering stays
+// stable between a ประวัติ listing and a follow-up "ยกเลิก <index>" command
+// run right after (as long as nothing new was saved in between).
 export async function listRecentConfirmedBatches(
+  householdId: string,
   memberId: string,
   limit: number = HISTORY_LIST_SIZE,
 ): Promise<Expense[][]> {
   const recentExpenses = await prisma.expense.findMany({
-    where: { paidByMemberId: memberId, confirmed: true },
+    where: { householdId, paidByMemberId: memberId, confirmed: true },
     orderBy: { createdAt: "desc" },
     take: 200,
   });
@@ -57,13 +73,29 @@ export async function listRecentConfirmedBatches(
     .map((batchId) => batchesById.get(batchId)!);
 }
 
-export async function cancelExpenseBatchesByIndex(
+// Looks up which confirmed expenses the given indices refer to, without
+// deleting anything — used to show a preview before the user confirms.
+export async function previewExpenseBatchesByIndex(
+  householdId: string,
   memberId: string,
   indices: number[],
 ): Promise<Expense[]> {
-  const batches = await listRecentConfirmedBatches(memberId);
+  const batches = await listRecentConfirmedBatches(householdId, memberId);
+  return indices.flatMap((index) => batches[index - 1] ?? []);
+}
 
-  const toCancel = indices.flatMap((index) => batches[index - 1] ?? []);
+// Deletes specific already-confirmed expense rows by id, scoped to this
+// household and member so a confirmed cancel postback can't be replayed
+// against another member's or another room's expenses. Returns the rows
+// that were actually deleted.
+export async function cancelExpensesByIds(
+  householdId: string,
+  memberId: string,
+  expenseIds: string[],
+): Promise<Expense[]> {
+  const toCancel = await prisma.expense.findMany({
+    where: { id: { in: expenseIds }, householdId, paidByMemberId: memberId, confirmed: true },
+  });
   if (toCancel.length === 0) {
     return [];
   }
@@ -148,9 +180,12 @@ export async function updateExpenseForUser(
   return updateExpense(expense.householdId, expenseId, updates);
 }
 
-export async function cancelLatestExpenseBatch(memberId: string) {
+// Looks up the member's most recently confirmed batch in this household
+// without deleting it — used to show a preview before the user confirms the
+// cancellation.
+export async function previewLatestExpenseBatch(householdId: string, memberId: string): Promise<Expense[]> {
   const latest = await prisma.expense.findFirst({
-    where: { paidByMemberId: memberId, confirmed: true },
+    where: { householdId, paidByMemberId: memberId, confirmed: true },
     orderBy: { createdAt: "desc" },
   });
 
@@ -158,13 +193,7 @@ export async function cancelLatestExpenseBatch(memberId: string) {
     return [];
   }
 
-  const batch = await prisma.expense.findMany({
-    where: { paidByMemberId: memberId, batchId: latest.batchId },
+  return prisma.expense.findMany({
+    where: { householdId, paidByMemberId: memberId, batchId: latest.batchId },
   });
-
-  await prisma.expense.deleteMany({
-    where: { paidByMemberId: memberId, batchId: latest.batchId },
-  });
-
-  return batch;
 }
