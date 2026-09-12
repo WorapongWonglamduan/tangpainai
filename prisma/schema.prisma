@@ -11,8 +11,14 @@ enum ExpenseCategory {
   RENT
   UTILITIES
   INTERNET
-  AI
+  SUBSCRIPTION
   FOOD
+  GROCERIES
+  TRANSPORT
+  HOUSEHOLD
+  HEALTH
+  SHOPPING
+  ENTERTAINMENT
   OTHER
 
   @@map("expense_category")
