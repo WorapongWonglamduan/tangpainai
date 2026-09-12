@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { buffer } from "node:stream/consumers";
 import { NextResponse } from "next/server";
-import { LINE_SIGNATURE_HTTP_HEADER_NAME, validateSignature, webhook } from "@line/bot-sdk";
+import { LINE_SIGNATURE_HTTP_HEADER_NAME, messagingApi, validateSignature, webhook } from "@line/bot-sdk";
 import {
   extractExpenseFromImageWithFallback,
   extractExpenseFromTextWithFallback,
@@ -36,6 +36,37 @@ import type { Expense } from "@/generated/prisma/client";
 
 const channelSecret = process.env.LINE_CHANNEL_SECRET!;
 
+const liffId = process.env.NEXT_PUBLIC_LIFF_ID;
+
+// Rich menus never appear in group/room chats — only in a 1:1 chat with the
+// Official Account (a LINE platform limitation, not something we can change).
+// This quick reply is the group/room equivalent: attached to key replies so
+// "ดูสรุป"/"วิธีใช้งาน" stay reachable without a persistent menu bar.
+const MAIN_QUICK_REPLY: messagingApi.QuickReply | undefined = liffId
+  ? {
+      items: [
+        {
+          type: "action",
+          action: { type: "uri", label: "ดูสรุป", uri: `https://liff.line.me/${liffId}` },
+        },
+        {
+          type: "action",
+          action: { type: "postback", label: "วิธีใช้งาน", data: RICH_MENU_POSTBACK.USAGE_GUIDE, displayText: "วิธีใช้งาน" },
+        },
+      ],
+    }
+  : undefined;
+
+// Helper for the common case of a single plain text reply with the quick
+// reply attached — avoids repeating `quickReply: MAIN_QUICK_REPLY` everywhere.
+// A plain object spread (rather than a generic wrapper) sidesteps a TS
+// inference quirk where the contextual `Message[]` type of the `messages`
+// array causes a generic parameter to widen to the constraint instead of the
+// literal when called inline inside the array.
+function textReply(text: string): messagingApi.TextMessage {
+  return { type: "text", text, quickReply: MAIN_QUICK_REPLY };
+}
+
 const USAGE_GUIDE_TEXT = `📖 วิธีใช้งาน
 
 💾 บันทึกค่าใช้จ่าย
@@ -68,6 +99,11 @@ export async function POST(request: Request) {
 }
 
 async function handleEvent(event: webhook.Event) {
+  if (event.type === "join") {
+    await handleJoinEvent(event);
+    return;
+  }
+
   if (event.type !== "message" && event.type !== "postback") {
     return;
   }
@@ -100,6 +136,27 @@ async function handleEvent(event: webhook.Event) {
     }
   } catch (error) {
     console.error("Failed to handle LINE event", error);
+  }
+}
+
+// Fired once when the bot is added to a group/room. We deliberately don't
+// create a Household/HouseholdMember row here — membership is created lazily
+// on the first real message via getOrCreateHouseholdMember, and a join event
+// has no source.userId to attribute it to anyway. This just greets the chat
+// so members immediately know how the bot works, since no rich menu will
+// ever show up here (LINE only renders rich menus in 1:1 chats).
+async function handleJoinEvent(event: webhook.JoinEvent) {
+  if (event.source?.type !== "group" && event.source?.type !== "room") {
+    return;
+  }
+
+  try {
+    await lineClient.replyMessage({
+      replyToken: event.replyToken,
+      messages: [textReply(`สวัสดีครับ 👋 ผมเป็นบอทช่วยจดค่าใช้จ่ายของกลุ่มนี้\n\n${USAGE_GUIDE_TEXT}`)],
+    });
+  } catch (error) {
+    console.error("Failed to handle LINE join event", error);
   }
 }
 
@@ -157,7 +214,7 @@ async function handleHistoryCommand(replyToken: string, householdMember: Househo
   if (batches.length === 0) {
     await lineClient.replyMessage({
       replyToken,
-      messages: [{ type: "text", text: "ยังไม่มีประวัติรายการที่บันทึกไว้" }],
+      messages: [textReply("ยังไม่มีประวัติรายการที่บันทึกไว้")],
     });
     return;
   }
@@ -167,10 +224,7 @@ async function handleHistoryCommand(replyToken: string, householdMember: Househo
   await lineClient.replyMessage({
     replyToken,
     messages: [
-      {
-        type: "text",
-        text: `ประวัติล่าสุดของคุณ:\n${lines.join("\n")}\n\nพิมพ์ "ยกเลิก [เลข]" เพื่อลบ เช่น "ยกเลิก 1 3"`,
-      },
+      textReply(`ประวัติล่าสุดของคุณ:\n${lines.join("\n")}\n\nพิมพ์ "ยกเลิก [เลข]" เพื่อลบ เช่น "ยกเลิก 1 3"`),
     ],
   });
 }
@@ -206,7 +260,7 @@ async function replyCancelConfirmation(
   if (toCancel.length === 0) {
     await lineClient.replyMessage({
       replyToken,
-      messages: [{ type: "text", text: emptyMessage }],
+      messages: [textReply(emptyMessage)],
     });
     return;
   }
@@ -218,10 +272,9 @@ async function replyCancelConfirmation(
     await lineClient.replyMessage({
       replyToken,
       messages: [
-        {
-          type: "text",
-          text: `พบ ${toCancel.length} รายการ ยกเลิกได้ครั้งละไม่เกิน ${MAX_CANCEL_CONFIRM_ITEMS} รายการ ลองระบุลำดับให้น้อยลง`,
-        },
+        textReply(
+          `พบ ${toCancel.length} รายการ ยกเลิกได้ครั้งละไม่เกิน ${MAX_CANCEL_CONFIRM_ITEMS} รายการ ลองระบุลำดับให้น้อยลง`,
+        ),
       ],
     });
     return;
@@ -263,14 +316,17 @@ async function handlePostback(
   householdMember: HouseholdMemberContext,
 ) {
   if (data === RICH_MENU_POSTBACK.USAGE_GUIDE) {
-    await lineClient.replyMessage({ replyToken, messages: [{ type: "text", text: USAGE_GUIDE_TEXT }] });
+    await lineClient.replyMessage({
+      replyToken,
+      messages: [textReply(USAGE_GUIDE_TEXT)],
+    });
     return;
   }
 
   if (data === CANCEL_REJECT) {
     await lineClient.replyMessage({
       replyToken,
-      messages: [{ type: "text", text: "ไม่ได้ยกเลิกรายการนี้" }],
+      messages: [textReply("ไม่ได้ยกเลิกรายการนี้")],
     });
     return;
   }
@@ -286,7 +342,7 @@ async function handlePostback(
     if (cancelled.length === 0) {
       await lineClient.replyMessage({
         replyToken,
-        messages: [{ type: "text", text: "ไม่พบรายการที่จะยกเลิก (อาจถูกยกเลิกไปแล้ว)" }],
+        messages: [textReply("ไม่พบรายการที่จะยกเลิก (อาจถูกยกเลิกไปแล้ว)")],
       });
       return;
     }
@@ -295,7 +351,7 @@ async function handlePostback(
     const header = cancelled.length > 1 ? `ยกเลิกแล้ว ❌ (${cancelled.length} รายการ)` : "ยกเลิกแล้ว ❌";
     await lineClient.replyMessage({
       replyToken,
-      messages: [{ type: "text", text: `${header}\nโดย: ${payerName}\n${formatItemsList(cancelled)}` }],
+      messages: [textReply(`${header}\nโดย: ${payerName}\n${formatItemsList(cancelled)}`)],
     });
     return;
   }
@@ -309,7 +365,7 @@ async function handlePostback(
     if (items.length === 0) {
       await lineClient.replyMessage({
         replyToken,
-        messages: [{ type: "text", text: "ไม่พบรายการที่จะยืนยัน (อาจถูกยกเลิกไปแล้ว)" }],
+        messages: [textReply("ไม่พบรายการที่จะยืนยัน (อาจถูกยกเลิกไปแล้ว)")],
       });
       return;
     }
@@ -317,7 +373,7 @@ async function handlePostback(
     const header = items.length > 1 ? `บันทึกแล้ว ✅ (${items.length} รายการ)` : "บันทึกแล้ว ✅";
     await lineClient.replyMessage({
       replyToken,
-      messages: [{ type: "text", text: `${header}\nโดย: ${payerName}\n${formatItemsList(items)}` }],
+      messages: [textReply(`${header}\nโดย: ${payerName}\n${formatItemsList(items)}`)],
     });
     return;
   }
@@ -327,10 +383,7 @@ async function handlePostback(
     await lineClient.replyMessage({
       replyToken,
       messages: [
-        {
-          type: "text",
-          text: deletedCount > 0 ? "ยกเลิกแล้ว ❌ ไม่ได้บันทึกรายการนี้" : "ไม่พบรายการที่จะยกเลิก",
-        },
+        textReply(deletedCount > 0 ? "ยกเลิกแล้ว ❌ ไม่ได้บันทึกรายการนี้" : "ไม่พบรายการที่จะยกเลิก"),
       ],
     });
   }
@@ -346,13 +399,11 @@ async function createPendingBatchAndAskConfirm(
     await lineClient.replyMessage({
       replyToken,
       messages: [
-        {
-          type: "text",
-          text:
-            sourceType === EXPENSE_SOURCE.IMAGE
-              ? "อ่านรูปนี้ไม่พบข้อมูลค่าใช้จ่าย ลองส่งรูปสลิปที่ชัดเจนกว่านี้"
-              : 'ไม่พบข้อมูลค่าใช้จ่ายในข้อความนี้ ลองพิมพ์ใหม่ เช่น "ค่าไฟ 850"',
-        },
+        textReply(
+          sourceType === EXPENSE_SOURCE.IMAGE
+            ? "อ่านรูปนี้ไม่พบข้อมูลค่าใช้จ่าย ลองส่งรูปสลิปที่ชัดเจนกว่านี้"
+            : 'ไม่พบข้อมูลค่าใช้จ่ายในข้อความนี้ ลองพิมพ์ใหม่ เช่น "ค่าไฟ 850"',
+        ),
       ],
     });
     return;
