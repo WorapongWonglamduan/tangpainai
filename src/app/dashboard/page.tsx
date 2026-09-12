@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import {
   EXPENSE_CATEGORY,
@@ -51,7 +52,7 @@ const DEFAULT_PERIOD = DASHBOARD_PERIOD.MONTH;
 const ALL_CATEGORIES = Object.values(EXPENSE_CATEGORY);
 
 export default function DashboardPage() {
-  const { idToken, error: initError } = useLiffIdToken();
+  const { idToken, error: initError, reauthenticate } = useLiffIdToken();
   const [period, setPeriod] = useState<DashboardPeriodValue>(DEFAULT_PERIOD);
   const [anchorDate, setAnchorDate] = useState<string | null>(null);
   const [customStart, setCustomStart] = useState<string | null>(null);
@@ -90,6 +91,18 @@ export default function DashboardPage() {
         });
         if (cancelled) return;
 
+        if (response.status === 401) {
+          // The ID token was rejected server-side despite passing our
+          // client-side expiry check (e.g. it expired in the gap between
+          // that check and this request). Retrying with the same idToken
+          // would just repeat the same 401 forever, so force a fresh LINE
+          // login instead of showing a "try again" that can't succeed.
+          setData(null);
+          setFetchError("เซสชันหมดอายุ กำลังเข้าสู่ระบบใหม่...");
+          reauthenticate();
+          return;
+        }
+
         if (response.status === 404) {
           setData(null);
           setFetchError("บัญชีนี้ยังไม่ได้เข้าร่วมบ้าน กรุณาเริ่มใช้งานผ่านแชทบอทก่อน");
@@ -123,7 +136,7 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [idToken, period, anchorDate, customStart, customEnd, selectedCategories, retryCount]);
+  }, [idToken, period, anchorDate, customStart, customEnd, selectedCategories, retryCount, reauthenticate]);
 
   function selectPeriod(next: DashboardPeriodValue) {
     if (next === period) return;
@@ -194,9 +207,12 @@ export default function DashboardPage() {
       aria-busy={isLoading}
     >
       <header className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-xs font-medium text-primary">ภาพรวมของบ้าน</p>
-          <h1 className="mt-0.5 text-xl font-bold tracking-tight">สรุปค่าใช้จ่าย</h1>
+        <div className="flex min-w-0 items-center gap-2.5">
+          <Image src="/logo.png" alt="ตังค์ไปไหน" width={40} height={40} className="h-10 w-10 shrink-0 rounded-xl" priority />
+          <div className="min-w-0">
+            <p className="truncate text-xs font-medium text-primary">ภาพรวมของบ้าน</p>
+            <h1 className="mt-0.5 truncate text-xl font-bold tracking-tight">สรุปค่าใช้จ่าย</h1>
+          </div>
         </div>
         <span className="flex min-w-0 max-w-[52%] items-center gap-2 rounded-full border border-outline-variant/60 bg-surface-container-lowest py-1.5 pr-3 pl-1.5 text-xs font-medium text-on-surface-variant shadow-sm">
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-container text-[11px] font-bold text-on-primary-container">
