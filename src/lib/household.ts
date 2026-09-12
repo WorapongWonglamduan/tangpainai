@@ -34,8 +34,11 @@ export async function getOrCreateHouseholdMember(
     return null;
   }
 
+  // Keyed on (household, lineUserId), not lineUserId alone — the same LINE
+  // user is a distinct member per household (their personal chat and every
+  // group they message the bot from each get their own membership row).
   let member = await prisma.householdMember.upsert({
-    where: { lineUserId: source.userId },
+    where: { householdId_lineUserId: { householdId: household.id, lineUserId: source.userId } },
     create: { householdId: household.id, lineUserId: source.userId },
     update: {},
   });

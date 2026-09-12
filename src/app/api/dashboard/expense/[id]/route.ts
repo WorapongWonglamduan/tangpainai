@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
 import { verifyLiffIdToken } from "@/lib/liff-auth";
-import { getExpenseForHousehold, updateExpense } from "@/lib/expense";
+import { getExpenseForUser, updateExpenseForUser } from "@/lib/expense";
 import { EXPENSE_CATEGORY, type ExpenseCategoryValue } from "@/constants/expense-category";
 
 const categoryValues = Object.values(EXPENSE_CATEGORY) as [ExpenseCategoryValue, ...ExpenseCategoryValue[]];
@@ -13,25 +12,25 @@ const UpdateExpenseSchema = z.object({
   note: z.string().trim().max(200).nullable(),
 });
 
-async function resolveHouseholdMember(request: Request) {
+async function resolveLineUserId(request: Request): Promise<string | null> {
   const authHeader = request.headers.get("authorization");
   const idToken = authHeader?.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : null;
   if (!idToken) return null;
 
-  const lineUserId = await verifyLiffIdToken(idToken);
-  if (!lineUserId) return null;
-
-  return prisma.householdMember.findUnique({ where: { lineUserId } });
+  return verifyLiffIdToken(idToken);
 }
 
 export async function GET(request: Request, ctx: RouteContext<"/api/dashboard/expense/[id]">) {
-  const member = await resolveHouseholdMember(request);
-  if (!member) {
+  const lineUserId = await resolveLineUserId(request);
+  if (!lineUserId) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   const { id } = await ctx.params;
-  const expense = await getExpenseForHousehold(member.householdId, id);
+  // A user can belong to several households now, so authorization is
+  // "is this user a member of whichever household this expense belongs to"
+  // rather than a single stored householdId.
+  const expense = await getExpenseForUser(lineUserId, id);
   if (!expense) {
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
@@ -47,8 +46,8 @@ export async function GET(request: Request, ctx: RouteContext<"/api/dashboard/ex
 }
 
 export async function PATCH(request: Request, ctx: RouteContext<"/api/dashboard/expense/[id]">) {
-  const member = await resolveHouseholdMember(request);
-  if (!member) {
+  const lineUserId = await resolveLineUserId(request);
+  if (!lineUserId) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
@@ -59,7 +58,7 @@ export async function PATCH(request: Request, ctx: RouteContext<"/api/dashboard/
   }
 
   const { id } = await ctx.params;
-  const updated = await updateExpense(member.householdId, id, parsed.data);
+  const updated = await updateExpenseForUser(lineUserId, id, parsed.data);
   if (!updated) {
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }

@@ -30,8 +30,16 @@ type DashboardExpense = {
   createdAt: string;
 };
 
+type Room = {
+  householdId: string;
+  isGroup: boolean;
+  name: string;
+};
+
 type DashboardResponse = {
+  householdId: string;
   memberName: string;
+  rooms: Room[];
   period: DashboardPeriodValue;
   anchorDate: string;
   periodLabel: string;
@@ -53,6 +61,9 @@ const ALL_CATEGORIES = Object.values(EXPENSE_CATEGORY);
 
 export default function DashboardPage() {
   const { idToken, error: initError, reauthenticate } = useLiffIdToken();
+  // null means "let the server pick" — it defaults to the user's first
+  // membership, which keeps single-room users working with no selection.
+  const [selectedHouseholdId, setSelectedHouseholdId] = useState<string | null>(null);
   const [period, setPeriod] = useState<DashboardPeriodValue>(DEFAULT_PERIOD);
   const [anchorDate, setAnchorDate] = useState<string | null>(null);
   const [customStart, setCustomStart] = useState<string | null>(null);
@@ -76,6 +87,7 @@ export default function DashboardPage() {
 
       try {
         const params = new URLSearchParams({ period });
+        if (selectedHouseholdId) params.set("householdId", selectedHouseholdId);
         if (period === DASHBOARD_PERIOD.CUSTOM) {
           if (customStart) params.set("start", customStart);
           if (customEnd) params.set("end", customEnd);
@@ -136,7 +148,23 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [idToken, period, anchorDate, customStart, customEnd, selectedCategories, retryCount, reauthenticate]);
+  }, [idToken, selectedHouseholdId, period, anchorDate, customStart, customEnd, selectedCategories, retryCount, reauthenticate]);
+
+  function selectRoom(householdId: string) {
+    if (householdId === selectedHouseholdId) return;
+
+    // Switching rooms is a full context change — carrying over a category
+    // filter or a custom date range from one room to another would silently
+    // scope the new room's view in a way the user didn't ask for.
+    setSelectedHouseholdId(householdId);
+    setPeriod(DEFAULT_PERIOD);
+    setAnchorDate(null);
+    setCustomStart(null);
+    setCustomEnd(null);
+    setDraftStart(null);
+    setDraftEnd(null);
+    setSelectedCategories([]);
+  }
 
   function selectPeriod(next: DashboardPeriodValue) {
     if (next === period) return;
@@ -221,6 +249,31 @@ export default function DashboardPage() {
           <span className="truncate">{data.memberName}</span>
         </span>
       </header>
+
+      {data.rooms.length > 1 && (
+        <div className="mt-4 flex gap-1.5 overflow-x-auto pb-1" role="group" aria-label="เลือกห้อง">
+          {data.rooms.map((room) => {
+            const isActive = room.householdId === data.householdId;
+            return (
+              <button
+                key={room.householdId}
+                type="button"
+                onClick={() => selectRoom(room.householdId)}
+                disabled={isLoading}
+                aria-pressed={isActive}
+                className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-2 text-xs font-medium transition-colors disabled:opacity-50 ${
+                  isActive
+                    ? "border-primary bg-primary text-on-primary shadow-sm"
+                    : "border-outline-variant/70 bg-surface-container-lowest text-on-surface-variant hover:border-primary/50"
+                }`}
+              >
+                <Icon name={room.isGroup ? "group" : "person"} className="text-[15px]" />
+                {room.name}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <section className="mt-5 rounded-2xl border border-outline-variant/60 bg-surface-container-lowest p-3 shadow-sm" aria-label="ตัวกรองช่วงเวลา">
         <div className="mb-2.5 flex items-center justify-between px-1">

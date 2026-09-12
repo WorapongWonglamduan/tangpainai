@@ -142,17 +142,47 @@ function formatPeriodLabelTH(period: DashboardPeriodValue, startDate: string, en
   return `${formatShortDateTH(startDate, !sameYear)} – ${formatShortDateTH(lastDate, true)}`;
 }
 
+// Every household this LINE user belongs to (their personal chat plus any
+// group households), used to populate the dashboard's room switcher and to
+// verify a requested householdId actually belongs to this user before
+// scoping any query to it.
+export async function listMemberships(lineUserId: string) {
+  const members = await prisma.householdMember.findMany({
+    where: { lineUserId },
+    include: { household: true },
+    orderBy: { joinedAt: "asc" },
+  });
+
+  return members.map((member) => ({
+    householdId: member.householdId,
+    memberName: member.displayName ?? "ไม่ทราบชื่อ",
+    isGroup: member.household.lineGroupId !== null,
+    // Only present for group households — used by the API layer to resolve
+    // a display name via LINE's group summary. null for personal chats.
+    lineGroupId: member.household.lineGroupId,
+  }));
+}
+
 export async function getDashboardData(
   lineUserId: string,
+  // Which of this user's households to show. Required once a user belongs
+  // to more than one — omitting it falls back to their first membership
+  // (joinedAt order) so existing single-household callers keep working.
+  householdId?: string,
   period: DashboardPeriodValue = DASHBOARD_PERIOD.MONTH,
   anchorDate?: string,
   customRange?: { startDate: string; endDateInclusive: string },
   // Empty/undefined means "no category filter" — every category is included.
   categories?: ExpenseCategoryValue[],
 ) {
-  const member = await prisma.householdMember.findUnique({
-    where: { lineUserId },
+  const member = await prisma.householdMember.findFirst({
+    // Scoping by lineUserId here is the authorization check: a member row
+    // for (householdId, lineUserId) only exists if this user actually
+    // belongs to that household, so a spoofed/unrelated householdId simply
+    // finds nothing rather than leaking another household's data.
+    where: householdId ? { lineUserId, householdId } : { lineUserId },
     include: { household: true },
+    orderBy: { joinedAt: "asc" },
   });
 
   if (!member) {
@@ -176,7 +206,7 @@ export async function getDashboardData(
   const categoryFilter = categories && categories.length > 0 ? categories : undefined;
   const categoryWhere = categoryFilter ? { category: { in: categoryFilter } } : {};
 
-  const [expenses, earlierCount, lifetimeAggregate] = await Promise.all([
+  const [expenses, earlierCount, lifetimeAggregate, memberships] = await Promise.all([
     prisma.expense.findMany({
       where: {
         householdId: member.householdId,
@@ -202,6 +232,10 @@ export async function getDashboardData(
       where: { householdId: member.householdId, confirmed: true },
       _sum: { amount: true },
     }),
+    // Sent back alongside the data for the room the user is currently
+    // viewing, so the dashboard can render the switcher without a second
+    // round-trip.
+    listMemberships(lineUserId),
   ]);
 
   const categoryTotals = Object.fromEntries(
@@ -233,6 +267,7 @@ export async function getDashboardData(
     categoryTotals,
     lifetimeTotal: Number(lifetimeAggregate._sum.amount ?? 0),
     expenses,
+    memberships,
   };
 }
 

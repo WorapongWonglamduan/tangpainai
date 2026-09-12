@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { addDays, getBangkokDateString, getDashboardData } from "@/lib/dashboard";
 import { verifyLiffIdToken } from "@/lib/liff-auth";
+import { lineClient } from "@/lib/line-client";
 import { DASHBOARD_PERIOD, type DashboardPeriodValue } from "@/constants/period";
 import { EXPENSE_CATEGORY, type ExpenseCategoryValue } from "@/constants/expense-category";
 
@@ -52,13 +53,41 @@ export async function GET(request: Request) {
     .getAll("category")
     .filter((value): value is ExpenseCategoryValue => VALID_CATEGORIES.has(value));
 
-  const data = await getDashboardData(lineUserId, period, anchorDate, customRange, categories);
+  // Which of the user's households to show. getDashboardData verifies this
+  // id actually belongs to lineUserId before scoping any query to it — an
+  // unrelated or spoofed id just finds nothing, it can't leak another
+  // household's data.
+  const householdIdParam = searchParams.get("householdId") ?? undefined;
+
+  const data = await getDashboardData(lineUserId, householdIdParam, period, anchorDate, customRange, categories);
   if (!data) {
     return NextResponse.json({ error: "not a member of any household yet" }, { status: 404 });
   }
 
+  // Group households only store a lineGroupId — resolve a human-readable
+  // name from LINE for each one so the room switcher shows "แชทกลุ่ม X"
+  // instead of a raw id. Best-effort: if LINE fails to answer for a group
+  // (e.g. the bot was removed from it), fall back to a generic label rather
+  // than failing the whole dashboard request.
+  const rooms = await Promise.all(
+    data.memberships.map(async (membership) => {
+      if (!membership.isGroup || !membership.lineGroupId) {
+        return { householdId: membership.householdId, isGroup: false, name: "ห้องของฉัน" };
+      }
+
+      try {
+        const summary = await lineClient.getGroupSummary(membership.lineGroupId);
+        return { householdId: membership.householdId, isGroup: true, name: summary.groupName };
+      } catch {
+        return { householdId: membership.householdId, isGroup: true, name: "แชทกลุ่ม" };
+      }
+    }),
+  );
+
   return NextResponse.json({
+    householdId: data.householdId,
     memberName: data.memberName,
+    rooms,
     period: data.period,
     anchorDate: data.anchorDate,
     periodLabel: data.periodLabel,

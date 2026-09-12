@@ -83,6 +83,26 @@ export async function getExpenseForHousehold(householdId: string, expenseId: str
   });
 }
 
+// Authorization check for a user who may belong to several households now:
+// finds the expense by id alone, then confirms lineUserId has a membership
+// row in whichever household it belongs to. Returns null if the expense
+// doesn't exist OR the user isn't a member of its household — the caller
+// can't distinguish the two, which is the point (no household enumeration).
+export async function getExpenseForUser(lineUserId: string, expenseId: string) {
+  const expense = await prisma.expense.findUnique({
+    where: { id: expenseId },
+    include: { paidByMember: true },
+  });
+  if (!expense) return null;
+
+  const isMember = await prisma.householdMember.findUnique({
+    where: { householdId_lineUserId: { householdId: expense.householdId, lineUserId } },
+  });
+  if (!isMember) return null;
+
+  return expense;
+}
+
 export type ExpenseEditableFields = {
   category: ExpenseCategoryValue;
   amount: number;
@@ -106,6 +126,26 @@ export async function updateExpense(householdId: string, expenseId: string, upda
     where: { id: expenseId },
     include: { paidByMember: true },
   });
+}
+
+// Same authorization shape as getExpenseForUser — verifies lineUserId is a
+// member of the expense's household before touching it, since a user can
+// now belong to several households and we can no longer assume "their one
+// household" from the token alone.
+export async function updateExpenseForUser(
+  lineUserId: string,
+  expenseId: string,
+  updates: ExpenseEditableFields,
+) {
+  const expense = await prisma.expense.findUnique({ where: { id: expenseId } });
+  if (!expense) return null;
+
+  const isMember = await prisma.householdMember.findUnique({
+    where: { householdId_lineUserId: { householdId: expense.householdId, lineUserId } },
+  });
+  if (!isMember) return null;
+
+  return updateExpense(expense.householdId, expenseId, updates);
 }
 
 export async function cancelLatestExpenseBatch(memberId: string) {
