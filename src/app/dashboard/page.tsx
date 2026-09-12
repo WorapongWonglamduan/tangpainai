@@ -44,14 +44,20 @@ type DashboardResponse = {
   expenses: DashboardExpense[];
 };
 
+const DEFAULT_PERIOD = DASHBOARD_PERIOD.MONTH;
+
 export default function DashboardPage() {
   const { idToken, error: initError } = useLiffIdToken();
-  const [period, setPeriod] = useState<DashboardPeriodValue>(DASHBOARD_PERIOD_OPTIONS[3]);
+  const [period, setPeriod] = useState<DashboardPeriodValue>(DEFAULT_PERIOD);
   const [anchorDate, setAnchorDate] = useState<string | null>(null);
   const [customStart, setCustomStart] = useState<string | null>(null);
   const [customEnd, setCustomEnd] = useState<string | null>(null);
+  const [draftStart, setDraftStart] = useState<string | null>(null);
+  const [draftEnd, setDraftEnd] = useState<string | null>(null);
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     if (!idToken) return;
@@ -59,6 +65,8 @@ export default function DashboardPage() {
 
     async function load() {
       setFetchError(null);
+      setIsLoading(true);
+
       try {
         const params = new URLSearchParams({ period });
         if (period === DASHBOARD_PERIOD.CUSTOM) {
@@ -74,19 +82,31 @@ export default function DashboardPage() {
         if (cancelled) return;
 
         if (response.status === 404) {
-          setFetchError("ยังไม่มีข้อมูลค่าใช้จ่าย ลองพิมพ์หรือส่งสลิปในแชทบอทก่อน");
+          setData(null);
+          setFetchError("บัญชีนี้ยังไม่ได้เข้าร่วมบ้าน กรุณาเริ่มใช้งานผ่านแชทบอทก่อน");
           return;
         }
 
         if (!response.ok) {
+          setData(null);
           setFetchError("โหลดข้อมูลไม่สำเร็จ ลองใหม่อีกครั้ง");
           return;
         }
 
         const json = (await response.json()) as DashboardResponse;
         setData(json);
+
+        if (json.period === DASHBOARD_PERIOD.CUSTOM) {
+          setDraftStart(json.customStart);
+          setDraftEnd(json.customEnd);
+        }
       } catch {
-        if (!cancelled) setFetchError("โหลดข้อมูลไม่สำเร็จ ลองใหม่อีกครั้ง");
+        if (!cancelled) {
+          setData(null);
+          setFetchError("โหลดข้อมูลไม่สำเร็จ ลองใหม่อีกครั้ง");
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false);
       }
     }
 
@@ -94,192 +114,307 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [idToken, period, anchorDate, customStart, customEnd]);
+  }, [idToken, period, anchorDate, customStart, customEnd, retryCount]);
 
   function selectPeriod(next: DashboardPeriodValue) {
+    if (next === period) return;
+
     setPeriod(next);
-    // switching period type always starts from a fresh default (today, or the
-    // server's default custom range)
     setAnchorDate(null);
     setCustomStart(null);
     setCustomEnd(null);
+    setDraftStart(null);
+    setDraftEnd(null);
+  }
+
+  function applyCustomRange() {
+    if (!draftStart || !draftEnd) return;
+    setCustomStart(draftStart);
+    setCustomEnd(draftEnd);
   }
 
   if (initError) {
     return <CenteredMessage text={initError} />;
   }
 
-  if (fetchError) {
-    return <CenteredMessage text={fetchError} />;
-  }
-
   if (!data) {
-    return <CenteredMessage text="กำลังโหลด..." />;
+    if (fetchError) {
+      return (
+        <main className="flex min-h-screen flex-col items-center justify-center px-6 text-center">
+          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-container text-on-surface-variant">
+            <Icon name="cloud_off" className="text-[24px]" />
+          </span>
+          <p className="mt-3 max-w-xs text-sm text-on-surface-variant">{fetchError}</p>
+          <button
+            type="button"
+            onClick={() => setRetryCount((count) => count + 1)}
+            className="mt-4 min-h-11 rounded-full bg-primary px-5 text-sm font-semibold text-on-primary transition-transform active:scale-95"
+          >
+            ลองอีกครั้ง
+          </button>
+        </main>
+      );
+    }
+
+    return <CenteredMessage text="กำลังโหลดสรุปค่าใช้จ่าย..." />;
   }
 
   const categoryEntries = (Object.entries(data.categoryTotals) as [ExpenseCategoryValue, number][])
     .filter(([, amount]) => amount > 0)
     .sort(([, a], [, b]) => b - a);
+  const customRangeChanged = Boolean(
+    draftStart &&
+      draftEnd &&
+      (draftStart !== data.customStart || draftEnd !== data.customEnd),
+  );
+  const datePickerMode = period === DASHBOARD_PERIOD.MONTH ? "month" : "day";
 
   return (
-    <main className="mx-auto min-h-screen w-full max-w-md bg-surface px-4 py-6 text-on-surface">
-      <div className="flex items-center justify-between gap-2">
-        <h1 className="text-lg font-semibold">สรุปค่าใช้จ่ายบ้าน</h1>
-        <span className="flex items-center gap-1.5 rounded-full bg-surface-container px-2.5 py-1 text-xs font-medium text-on-surface-variant">
-          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-on-primary">
+    <main
+      className="mx-auto min-h-screen w-full max-w-md bg-surface px-4 pt-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))] text-on-surface"
+      aria-busy={isLoading}
+    >
+      <header className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-medium text-primary">ภาพรวมของบ้าน</p>
+          <h1 className="mt-0.5 text-xl font-bold tracking-tight">สรุปค่าใช้จ่าย</h1>
+        </div>
+        <span className="flex min-w-0 max-w-[52%] items-center gap-2 rounded-full border border-outline-variant/60 bg-surface-container-lowest py-1.5 pr-3 pl-1.5 text-xs font-medium text-on-surface-variant shadow-sm">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-container text-[11px] font-bold text-on-primary-container">
             {data.memberName.charAt(0)}
           </span>
-          {data.memberName}
+          <span className="truncate">{data.memberName}</span>
         </span>
-      </div>
+      </header>
 
-      <div className="-mx-4 mt-4 flex gap-2 overflow-x-auto px-4 pb-1">
-        {DASHBOARD_PERIOD_OPTIONS.map((option) => (
-          <button
-            key={option}
-            type="button"
-            onClick={() => selectPeriod(option)}
-            className={`shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors active:scale-95 ${
-              option === data.period
-                ? "bg-primary text-on-primary shadow-sm shadow-primary/30"
-                : "bg-surface-container text-on-surface-variant"
-            }`}
-          >
-            {DASHBOARD_PERIOD_LABEL_TH[option]}
-          </button>
-        ))}
-      </div>
-
-      {data.period === DASHBOARD_PERIOD.CUSTOM ? (
-        <div className="mt-3 flex items-center gap-2">
-          <CalendarDatePicker
-            value={data.customStart ?? data.anchorDate}
-            onChange={setCustomStart}
-            className="flex flex-1 items-center gap-2 rounded-xl bg-surface-container-lowest px-3 py-2 text-sm shadow-sm"
-          />
-          <span className="text-on-surface-variant">–</span>
-          <CalendarDatePicker
-            value={data.customEnd ?? data.anchorDate}
-            onChange={setCustomEnd}
-            align="right"
-            className="flex flex-1 items-center gap-2 rounded-xl bg-surface-container-lowest px-3 py-2 text-sm shadow-sm"
-          />
+      <section className="mt-5 rounded-2xl border border-outline-variant/60 bg-surface-container-lowest p-3 shadow-sm" aria-label="ตัวกรองช่วงเวลา">
+        <div className="mb-2.5 flex items-center justify-between px-1">
+          <div className="flex items-center gap-2">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-container text-on-primary-container">
+              <Icon name="tune" className="text-[17px]" />
+            </span>
+            <h2 className="text-sm font-semibold">เลือกช่วงเวลา</h2>
+          </div>
+          <span className={`flex items-center gap-1 text-[11px] text-primary transition-opacity ${isLoading ? "opacity-100" : "opacity-0"}`} aria-live="polite">
+            <span className="h-3 w-3 animate-spin rounded-full border-2 border-primary/25 border-t-primary" />
+            กำลังอัปเดต
+          </span>
         </div>
-      ) : (
-        <div className="mt-3 flex items-center justify-between rounded-xl bg-surface-container-lowest px-3 py-2 shadow-sm">
-          <button
-            type="button"
-            disabled={!data.hasPrevPeriod}
-            onClick={() => setAnchorDate(data.prevAnchorDate)}
-            className="rounded-full p-1 text-on-surface-variant disabled:opacity-30"
-          >
-            <Icon name="chevron_left" />
-          </button>
-          <CalendarDatePicker
-            value={data.anchorDate}
-            onChange={setAnchorDate}
-            label={data.periodLabel}
-            className="flex min-w-0 flex-1 items-center justify-center gap-1.5 text-sm font-medium"
-          />
-          <button
-            type="button"
-            disabled={!data.hasNextPeriod}
-            onClick={() => setAnchorDate(data.nextAnchorDate)}
-            className="rounded-full p-1 text-on-surface-variant disabled:opacity-30"
-          >
-            <Icon name="chevron_right" />
+
+        <div className="grid grid-cols-6 gap-1.5 rounded-xl bg-surface-container-low p-1.5" role="group" aria-label="รูปแบบช่วงเวลา">
+          {DASHBOARD_PERIOD_OPTIONS.map((option, index) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => selectPeriod(option)}
+              aria-pressed={option === period}
+              className={`${index < 3 ? "col-span-2" : "col-span-3"} min-h-10 rounded-lg px-2 text-xs font-medium transition-all active:scale-[0.97] sm:text-sm ${
+                option === period
+                  ? "bg-primary text-on-primary shadow-sm"
+                  : "text-on-surface-variant hover:bg-surface-container-lowest"
+              }`}
+            >
+              {DASHBOARD_PERIOD_LABEL_TH[option]}
+            </button>
+          ))}
+        </div>
+
+        {period === DASHBOARD_PERIOD.CUSTOM ? (
+          <div className="mt-3">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2">
+              <label className="min-w-0">
+                <span className="mb-1 block text-[11px] font-medium text-on-surface-variant">วันเริ่มต้น</span>
+                <CalendarDatePicker
+                  value={draftStart ?? data.customStart ?? data.anchorDate}
+                  onChange={setDraftStart}
+                  disabled={isLoading}
+                  ariaLabel="เลือกวันเริ่มต้น"
+                  className="flex min-h-11 w-full items-center gap-1.5 rounded-xl border border-outline-variant/70 bg-surface-container-lowest px-2.5 text-left text-xs transition-colors hover:border-primary disabled:opacity-50"
+                />
+              </label>
+              <span className="mb-3 text-xs text-on-surface-variant">ถึง</span>
+              <label className="min-w-0">
+                <span className="mb-1 block text-[11px] font-medium text-on-surface-variant">วันสิ้นสุด</span>
+                <CalendarDatePicker
+                  value={draftEnd ?? data.customEnd ?? data.anchorDate}
+                  onChange={setDraftEnd}
+                  disabled={isLoading}
+                  ariaLabel="เลือกวันสิ้นสุด"
+                  align="right"
+                  className="flex min-h-11 w-full items-center gap-1.5 rounded-xl border border-outline-variant/70 bg-surface-container-lowest px-2.5 text-left text-xs transition-colors hover:border-primary disabled:opacity-50"
+                />
+              </label>
+            </div>
+            <div className="mt-2.5 flex items-center justify-between gap-3">
+              <p className="text-[10px] text-on-surface-variant">เลือกได้สูงสุด 366 วัน</p>
+              <button
+                type="button"
+                disabled={!customRangeChanged || isLoading}
+                onClick={applyCustomRange}
+                className="min-h-10 rounded-xl bg-primary px-5 text-xs font-semibold text-on-primary transition-all active:scale-95 disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant"
+              >
+                ใช้ช่วงเวลานี้
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-3 flex items-center gap-1 rounded-xl border border-outline-variant/70 bg-surface-container-lowest p-1.5">
+            <button
+              type="button"
+              aria-label="ช่วงเวลาก่อนหน้า"
+              disabled={!data.hasPrevPeriod || isLoading}
+              onClick={() => setAnchorDate(data.prevAnchorDate)}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-surface-container-low disabled:opacity-25"
+            >
+              <Icon name="chevron_left" />
+            </button>
+            <CalendarDatePicker
+              value={data.anchorDate}
+              onChange={setAnchorDate}
+              label={data.periodLabel}
+              mode={datePickerMode}
+              disabled={isLoading}
+              ariaLabel={datePickerMode === "month" ? "เลือกเดือน" : "เลือกวันที่"}
+              className="flex min-h-10 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg px-2 text-sm font-semibold transition-colors hover:bg-surface-container-low disabled:opacity-50"
+            />
+            <button
+              type="button"
+              aria-label="ช่วงเวลาถัดไป"
+              disabled={!data.hasNextPeriod || isLoading}
+              onClick={() => setAnchorDate(data.nextAnchorDate)}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-surface-container-low disabled:opacity-25"
+            >
+              <Icon name="chevron_right" />
+            </button>
+          </div>
+        )}
+      </section>
+
+      {fetchError && (
+        <div className="mt-3 flex items-center gap-2 rounded-xl bg-red-50 p-3 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-300" role="alert">
+          <Icon name="error" className="text-[18px]" />
+          <span className="flex-1">{fetchError}</span>
+          <button type="button" onClick={() => setRetryCount((count) => count + 1)} className="font-semibold underline underline-offset-2">
+            ลองใหม่
           </button>
         </div>
       )}
 
-      <section className="mt-4 rounded-xl bg-surface-container-lowest p-4 shadow-sm">
-        <p className="text-sm text-on-surface-variant">ยอดรวมช่วงนี้</p>
-        <p className="mt-1 text-3xl font-bold tracking-tight text-primary">
-          ฿{data.total.toLocaleString("th-TH")}
-        </p>
-      </section>
+      <div className={`transition-opacity duration-200 ${isLoading ? "opacity-55" : "opacity-100"}`}>
+        <section className="relative mt-4 overflow-hidden rounded-2xl bg-gradient-to-br from-primary to-emerald-700 p-5 text-on-primary shadow-md shadow-primary/15">
+          <span className="absolute -top-8 -right-5 h-28 w-28 rounded-full bg-white/10" />
+          <span className="absolute -right-2 -bottom-10 h-24 w-24 rounded-full bg-black/5" />
+          <div className="relative">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-on-primary/80">
+              <Icon name="payments" className="text-[16px]" />
+              ยอดรวมช่วงนี้
+            </div>
+            <p className="mt-2 text-3xl font-bold tracking-tight">
+              <span className="mr-1 text-xl font-semibold opacity-80">฿</span>
+              {data.total.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+            <p className="mt-1 text-xs text-on-primary/75">{data.periodLabel}</p>
+          </div>
+        </section>
 
-      {categoryEntries.length > 0 && (
-        <section className="mt-4 rounded-xl bg-surface-container-lowest p-4 shadow-sm">
-          <h2 className="text-sm font-semibold text-on-surface-variant">แยกตามหมวด</h2>
+        {categoryEntries.length > 0 && (
+          <section className="mt-4 rounded-2xl border border-outline-variant/60 bg-surface-container-lowest p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold">สัดส่วนตามหมวด</h2>
+              <span className="text-[11px] text-on-surface-variant">{categoryEntries.length} หมวด</span>
+            </div>
 
-          <div className="mt-3 flex h-2.5 w-full overflow-hidden rounded-full bg-surface-container-high">
-            {categoryEntries.map(([category, amount]) => (
-              <div
-                key={category}
-                className={EXPENSE_CATEGORY_STYLE[category].bar}
-                style={{ width: `${(amount / data.total) * 100}%` }}
-              />
-            ))}
+            <div className="mt-3 flex h-3 w-full gap-0.5 overflow-hidden rounded-full bg-surface-container-high" aria-label="สัดส่วนค่าใช้จ่ายตามหมวด">
+              {categoryEntries.map(([category, amount]) => (
+                <div
+                  key={category}
+                  className={EXPENSE_CATEGORY_STYLE[category].bar}
+                  style={{ width: `${(amount / data.total) * 100}%` }}
+                  title={`${EXPENSE_CATEGORY_LABEL_TH[category]} ${((amount / data.total) * 100).toFixed(0)}%`}
+                />
+              ))}
+            </div>
+
+            <ul className="mt-3 divide-y divide-outline-variant/50">
+              {categoryEntries.map(([category, amount]) => (
+                <li key={category} className="flex items-center justify-between gap-3 py-2.5 first:pt-1 last:pb-0">
+                  <span className="flex min-w-0 items-center gap-2 text-sm">
+                    <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${EXPENSE_CATEGORY_STYLE[category].badge}`}>
+                      <Icon name={EXPENSE_CATEGORY_ICON[category]} className="text-[17px]" />
+                    </span>
+                    <span className="truncate">{EXPENSE_CATEGORY_LABEL_TH[category]}</span>
+                  </span>
+                  <span className="text-right">
+                    <span className="block text-sm font-semibold">฿{amount.toLocaleString("th-TH")}</span>
+                    <span className="block text-[10px] text-on-surface-variant">{((amount / data.total) * 100).toFixed(0)}%</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        <section className="mt-5">
+          <div className="flex items-end justify-between px-1">
+            <div>
+              <h2 className="text-sm font-semibold">รายการค่าใช้จ่าย</h2>
+              <p className="mt-0.5 text-[11px] text-on-surface-variant">เรียงจากรายการล่าสุด</p>
+            </div>
+            <span className="rounded-full bg-surface-container px-2.5 py-1 text-[11px] font-medium text-on-surface-variant">
+              {data.expenses.length} รายการ
+            </span>
           </div>
 
-          <ul className="mt-3 space-y-2">
-            {categoryEntries.map(([category, amount]) => (
-              <li key={category} className="flex items-center justify-between text-sm">
-                <span className="flex items-center gap-1.5">
-                  <span
-                    className={`inline-flex h-5 w-5 items-center justify-center rounded-full ${EXPENSE_CATEGORY_STYLE[category].badge}`}
+          {data.expenses.length === 0 ? (
+            <div className="mt-3 flex flex-col items-center rounded-2xl border border-dashed border-outline-variant bg-surface-container-lowest px-6 py-10 text-center">
+              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-container text-on-surface-variant">
+                <Icon name="receipt_long" className="text-[24px]" />
+              </span>
+              <p className="mt-3 text-sm font-medium">ยังไม่มีค่าใช้จ่ายในช่วงนี้</p>
+              <p className="mt-1 text-xs text-on-surface-variant">ลองเปลี่ยนช่วงเวลาเพื่อดูรายการอื่น</p>
+            </div>
+          ) : (
+            <ul className="mt-3 space-y-2.5">
+              {data.expenses.map((expense) => (
+                <li key={expense.id}>
+                  <Link
+                    href={`/dashboard/expense/${expense.id}`}
+                    className="group flex items-center gap-3 rounded-2xl border border-outline-variant/60 bg-surface-container-lowest p-3 shadow-sm transition-all hover:border-primary/30 active:scale-[0.99] active:bg-surface-container-low"
                   >
-                    <Icon name={EXPENSE_CATEGORY_ICON[category]} className="text-[14px]" />
-                  </span>
-                  {EXPENSE_CATEGORY_LABEL_TH[category]}
-                </span>
-                <span className="font-medium">฿{amount.toLocaleString("th-TH")}</span>
-              </li>
-            ))}
-          </ul>
+                    <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${EXPENSE_CATEGORY_STYLE[expense.category].badge}`}>
+                      <Icon name={EXPENSE_CATEGORY_ICON[expense.category]} className="text-[21px]" />
+                    </span>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="truncate text-sm font-semibold">
+                          {expense.note || EXPENSE_CATEGORY_LABEL_TH[expense.category]}
+                        </span>
+                        <span className="shrink-0 text-sm font-bold">฿{Number(expense.amount).toLocaleString("th-TH")}</span>
+                      </div>
+                      <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-on-surface-variant">
+                        <span className={`inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${EXPENSE_CATEGORY_STYLE[expense.category].badge}`}>
+                          {EXPENSE_CATEGORY_LABEL_TH[expense.category]}
+                        </span>
+                        <span className="truncate">{expense.payerName}</span>
+                        <span className="shrink-0">· {new Date(expense.createdAt).toLocaleString("th-TH", {
+                          timeZone: "Asia/Bangkok",
+                          day: "2-digit",
+                          month: "2-digit",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}</span>
+                      </div>
+                    </div>
+
+                    <Icon name="chevron_right" className="text-[18px] text-on-surface-variant/50 transition-transform group-hover:translate-x-0.5" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
-      )}
-
-      <section className="mt-6">
-        <h2 className="text-sm font-semibold text-on-surface-variant">รายการช่วงนี้</h2>
-        <ul className="mt-2 space-y-2">
-          {data.expenses.map((expense) => (
-            <li key={expense.id}>
-              <Link
-                href={`/dashboard/expense/${expense.id}`}
-                className="flex items-center gap-3 rounded-xl bg-surface-container-lowest p-3 shadow-sm transition-colors active:bg-surface-container-low"
-              >
-                <span
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${EXPENSE_CATEGORY_STYLE[expense.category].badge}`}
-                >
-                  <Icon name={EXPENSE_CATEGORY_ICON[expense.category]} className="text-[20px]" />
-                </span>
-
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="truncate text-sm font-medium">
-                      {expense.note || EXPENSE_CATEGORY_LABEL_TH[expense.category]}
-                    </span>
-                  </div>
-                  <div className="mt-0.5 flex items-center gap-1.5 text-xs text-on-surface-variant">
-                    <span
-                      className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${EXPENSE_CATEGORY_STYLE[expense.category].badge}`}
-                    >
-                      {EXPENSE_CATEGORY_LABEL_TH[expense.category]}
-                    </span>
-                    <span>{expense.payerName}</span>
-                    <span>
-                      ·{" "}
-                      {new Date(expense.createdAt).toLocaleString("th-TH", {
-                        timeZone: "Asia/Bangkok",
-                        day: "2-digit",
-                        month: "2-digit",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </span>
-                  </div>
-                </div>
-
-                <span className="shrink-0 text-sm font-semibold">
-                  ฿{Number(expense.amount).toLocaleString("th-TH")}
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </section>
+      </div>
     </main>
   );
 }
