@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 import { buffer } from "node:stream/consumers";
 import { NextResponse } from "next/server";
 import { LINE_SIGNATURE_HTTP_HEADER_NAME, validateSignature, webhook } from "@line/bot-sdk";
-import { extractExpenseFromImage, extractExpenseFromText, type ExpenseExtraction } from "@/lib/anthropic";
+import {
+  extractExpenseFromImageWithFallback,
+  extractExpenseFromTextWithFallback,
+} from "@/lib/expense-extraction";
+import type { ExpenseExtraction } from "@/lib/expense-extraction-schema";
 import {
   cancelExpenseBatchesByIndex,
   cancelLatestExpenseBatch,
@@ -99,7 +103,8 @@ async function handleTextMessage(
     return;
   }
 
-  const extraction = await extractExpenseFromText(text);
+  const lineTo = householdMember.household.lineGroupId ?? householdMember.household.lineUserId!;
+  const extraction = await extractExpenseFromTextWithFallback(text, lineTo);
   await createPendingBatchAndAskConfirm(extraction, replyToken, householdMember, EXPENSE_SOURCE.TEXT);
 }
 
@@ -112,7 +117,8 @@ async function handleImageMessage(
   const imageBuffer = await buffer(contentStream);
   const base64Data = imageBuffer.toString("base64");
 
-  const extraction = await extractExpenseFromImage(base64Data, "image/jpeg");
+  const lineTo = householdMember.household.lineGroupId ?? householdMember.household.lineUserId!;
+  const extraction = await extractExpenseFromImageWithFallback(base64Data, "image/jpeg", lineTo);
   await createPendingBatchAndAskConfirm(extraction, replyToken, householdMember, EXPENSE_SOURCE.IMAGE);
 }
 
