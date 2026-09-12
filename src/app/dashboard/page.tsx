@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  EXPENSE_CATEGORY,
   EXPENSE_CATEGORY_ICON,
   EXPENSE_CATEGORY_LABEL_TH,
   EXPENSE_CATEGORY_STYLE,
@@ -39,12 +40,15 @@ type DashboardResponse = {
   nextAnchorDate: string;
   customStart: string | null;
   customEnd: string | null;
+  selectedCategories: ExpenseCategoryValue[];
   total: number;
   categoryTotals: Record<ExpenseCategoryValue, number>;
+  lifetimeTotal: number;
   expenses: DashboardExpense[];
 };
 
 const DEFAULT_PERIOD = DASHBOARD_PERIOD.MONTH;
+const ALL_CATEGORIES = Object.values(EXPENSE_CATEGORY);
 
 export default function DashboardPage() {
   const { idToken, error: initError } = useLiffIdToken();
@@ -54,6 +58,8 @@ export default function DashboardPage() {
   const [customEnd, setCustomEnd] = useState<string | null>(null);
   const [draftStart, setDraftStart] = useState<string | null>(null);
   const [draftEnd, setDraftEnd] = useState<string | null>(null);
+  // Empty array means "no filter" — every category is included.
+  const [selectedCategories, setSelectedCategories] = useState<ExpenseCategoryValue[]>([]);
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -74,6 +80,9 @@ export default function DashboardPage() {
           if (customEnd) params.set("end", customEnd);
         } else if (anchorDate) {
           params.set("date", anchorDate);
+        }
+        for (const category of selectedCategories) {
+          params.append("category", category);
         }
 
         const response = await fetch(`/api/dashboard/summary?${params}`, {
@@ -114,7 +123,7 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [idToken, period, anchorDate, customStart, customEnd, retryCount]);
+  }, [idToken, period, anchorDate, customStart, customEnd, selectedCategories, retryCount]);
 
   function selectPeriod(next: DashboardPeriodValue) {
     if (next === period) return;
@@ -131,6 +140,16 @@ export default function DashboardPage() {
     if (!draftStart || !draftEnd) return;
     setCustomStart(draftStart);
     setCustomEnd(draftEnd);
+  }
+
+  function toggleCategory(category: ExpenseCategoryValue) {
+    setSelectedCategories((current) =>
+      current.includes(category) ? current.filter((value) => value !== category) : [...current, category],
+    );
+  }
+
+  function clearCategoryFilter() {
+    setSelectedCategories([]);
   }
 
   if (initError) {
@@ -217,6 +236,44 @@ export default function DashboardPage() {
               {DASHBOARD_PERIOD_LABEL_TH[option]}
             </button>
           ))}
+        </div>
+
+        <div className="mt-3">
+          <div className="flex items-center justify-between px-1">
+            <span className="text-[11px] font-medium text-on-surface-variant">กรองตามหมวด</span>
+            {selectedCategories.length > 0 && (
+              <button
+                type="button"
+                onClick={clearCategoryFilter}
+                disabled={isLoading}
+                className="text-[11px] font-semibold text-primary disabled:opacity-50"
+              >
+                ล้างตัวกรอง
+              </button>
+            )}
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-1.5" role="group" aria-label="กรองตามหมวด">
+            {ALL_CATEGORIES.map((category) => {
+              const isSelected = selectedCategories.includes(category);
+              return (
+                <button
+                  key={category}
+                  type="button"
+                  onClick={() => toggleCategory(category)}
+                  disabled={isLoading}
+                  aria-pressed={isSelected}
+                  className={`flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors active:scale-95 disabled:opacity-50 ${
+                    isSelected
+                      ? "border-primary bg-primary text-on-primary"
+                      : "border-outline-variant/70 bg-surface-container-lowest text-on-surface-variant hover:border-primary/50"
+                  }`}
+                >
+                  <Icon name={EXPENSE_CATEGORY_ICON[category]} className="text-[15px]" />
+                  {EXPENSE_CATEGORY_LABEL_TH[category]}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {period === DASHBOARD_PERIOD.CUSTOM ? (
@@ -315,6 +372,16 @@ export default function DashboardPage() {
             </p>
             <p className="mt-1 text-xs text-on-primary/75">{data.periodLabel}</p>
           </div>
+        </section>
+
+        <section className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-outline-variant/60 bg-surface-container-lowest p-3.5 shadow-sm">
+          <span className="flex items-center gap-2 text-xs text-on-surface-variant">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface-container text-on-surface-variant">
+              <Icon name="account_balance_wallet" className="text-[17px]" />
+            </span>
+            ใช้ไปทั้งหมดตั้งแต่เริ่มใช้งาน
+          </span>
+          <span className="shrink-0 text-base font-bold">฿{data.lifetimeTotal.toLocaleString("th-TH")}</span>
         </section>
 
         {categoryEntries.length > 0 && (

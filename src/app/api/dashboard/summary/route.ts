@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 import { addDays, getBangkokDateString, getDashboardData } from "@/lib/dashboard";
 import { verifyLiffIdToken } from "@/lib/liff-auth";
 import { DASHBOARD_PERIOD, type DashboardPeriodValue } from "@/constants/period";
+import { EXPENSE_CATEGORY, type ExpenseCategoryValue } from "@/constants/expense-category";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const VALID_PERIODS = new Set<string>(Object.values(DASHBOARD_PERIOD));
+const VALID_CATEGORIES = new Set<string>(Object.values(EXPENSE_CATEGORY));
 // Default span shown the first time a member switches to the custom filter,
 // before they've picked their own start/end.
 const DEFAULT_CUSTOM_RANGE_DAYS = 7;
@@ -44,7 +46,13 @@ export async function GET(request: Request) {
         : { startDate: addDays(getBangkokDateString(), -(DEFAULT_CUSTOM_RANGE_DAYS - 1)), endDateInclusive: getBangkokDateString() };
   }
 
-  const data = await getDashboardData(lineUserId, period, anchorDate, customRange);
+  // Repeated ?category=RENT&category=FOOD selects multiple categories; an
+  // unknown value is dropped rather than rejecting the whole request.
+  const categories = searchParams
+    .getAll("category")
+    .filter((value): value is ExpenseCategoryValue => VALID_CATEGORIES.has(value));
+
+  const data = await getDashboardData(lineUserId, period, anchorDate, customRange, categories);
   if (!data) {
     return NextResponse.json({ error: "not a member of any household yet" }, { status: 404 });
   }
@@ -60,8 +68,10 @@ export async function GET(request: Request) {
     nextAnchorDate: data.nextAnchorDate,
     customStart: data.customStart,
     customEnd: data.customEnd,
+    selectedCategories: data.selectedCategories,
     total: data.total,
     categoryTotals: data.categoryTotals,
+    lifetimeTotal: data.lifetimeTotal,
     expenses: data.expenses.map((expense) => ({
       id: expense.id,
       category: expense.category,

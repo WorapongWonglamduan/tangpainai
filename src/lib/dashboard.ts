@@ -147,6 +147,8 @@ export async function getDashboardData(
   period: DashboardPeriodValue = DASHBOARD_PERIOD.MONTH,
   anchorDate?: string,
   customRange?: { startDate: string; endDateInclusive: string },
+  // Empty/undefined means "no category filter" — every category is included.
+  categories?: ExpenseCategoryValue[],
 ) {
   const member = await prisma.householdMember.findUnique({
     where: { lineUserId },
@@ -171,18 +173,34 @@ export async function getDashboardData(
   // paging is done by editing the two dates directly, not by stepping blocks.
   const hasNextPeriod = isCustom ? startDate < getBangkokDateString() : startDate < getPeriodRange(period, getBangkokDateString()).startDate;
 
-  const [expenses, earlierCount] = await Promise.all([
+  const categoryFilter = categories && categories.length > 0 ? categories : undefined;
+  const categoryWhere = categoryFilter ? { category: { in: categoryFilter } } : {};
+
+  const [expenses, earlierCount, lifetimeAggregate] = await Promise.all([
     prisma.expense.findMany({
       where: {
         householdId: member.householdId,
         confirmed: true,
         occurredAt: { gte: start, lt: end },
+        ...categoryWhere,
       },
       orderBy: { occurredAt: "desc" },
       include: { paidByMember: true },
     }),
     prisma.expense.count({
-      where: { householdId: member.householdId, confirmed: true, occurredAt: { lt: start } },
+      where: {
+        householdId: member.householdId,
+        confirmed: true,
+        occurredAt: { lt: start },
+        ...categoryWhere,
+      },
+    }),
+    // Lifetime total is intentionally independent of the period and category
+    // filters — it always reflects every confirmed expense this household
+    // has ever recorded, so switching filters never changes this number.
+    prisma.expense.aggregate({
+      where: { householdId: member.householdId, confirmed: true },
+      _sum: { amount: true },
     }),
   ]);
 
@@ -210,8 +228,10 @@ export async function getDashboardData(
     nextAnchorDate: endDate,
     customStart: isCustom ? startDate : null,
     customEnd: isCustom ? addDays(endDate, -1) : null,
+    selectedCategories: categoryFilter ?? [],
     total,
     categoryTotals,
+    lifetimeTotal: Number(lifetimeAggregate._sum.amount ?? 0),
     expenses,
   };
 }
