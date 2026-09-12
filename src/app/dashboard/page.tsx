@@ -72,6 +72,7 @@ export default function DashboardPage() {
   const [draftEnd, setDraftEnd] = useState<string | null>(null);
   // Empty array means "no filter" — every category is included.
   const [selectedCategories, setSelectedCategories] = useState<ExpenseCategoryValue[]>([]);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -193,6 +194,17 @@ export default function DashboardPage() {
     setSelectedCategories([]);
   }
 
+  useEffect(() => {
+    if (!filterOpen) return;
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setFilterOpen(false);
+    }
+
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [filterOpen]);
+
   if (initError) {
     return <CenteredMessage text={initError} />;
   }
@@ -275,146 +287,225 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <section className="mt-5 rounded-2xl border border-outline-variant/60 bg-surface-container-lowest p-3 shadow-sm" aria-label="ตัวกรองช่วงเวลา">
-        <div className="mb-2.5 flex items-center justify-between px-1">
-          <div className="flex items-center gap-2">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-container text-on-primary-container">
-              <Icon name="tune" className="text-[17px]" />
-            </span>
-            <h2 className="text-sm font-semibold">เลือกช่วงเวลา</h2>
-          </div>
-          <span className={`flex items-center gap-1 text-[11px] text-primary transition-opacity ${isLoading ? "opacity-100" : "opacity-0"}`} aria-live="polite">
-            <span className="h-3 w-3 animate-spin rounded-full border-2 border-primary/25 border-t-primary" />
+      {/* Sticky quick-nav bar: stays reachable at the top of the viewport while
+          scrolling through the expense list below, so switching period or
+          opening the filter sheet never requires scrolling back up. Deeper
+          controls (period type, category chips, custom range editor) live in
+          the bottom sheet opened from here. */}
+      <div className="sticky top-0 z-20 -mx-4 mt-4 border-b border-outline-variant/60 bg-surface/95 px-4 py-2.5 backdrop-blur supports-[backdrop-filter]:bg-surface/80">
+        <div className="flex items-center gap-2">
+          {period === DASHBOARD_PERIOD.CUSTOM ? (
+            <button
+              type="button"
+              onClick={() => setFilterOpen(true)}
+              className="flex min-h-11 flex-1 items-center gap-2 rounded-xl border border-outline-variant/70 bg-surface-container-lowest px-3 text-left text-sm font-semibold shadow-sm"
+            >
+              <Icon name="date_range" className="shrink-0 text-[18px] text-primary" />
+              <span className="truncate">{data.periodLabel}</span>
+            </button>
+          ) : (
+            <div className="flex min-h-11 flex-1 items-center gap-1 rounded-xl border border-outline-variant/70 bg-surface-container-lowest p-1">
+              <button
+                type="button"
+                aria-label="ช่วงเวลาก่อนหน้า"
+                disabled={!data.hasPrevPeriod || isLoading}
+                onClick={() => setAnchorDate(data.prevAnchorDate)}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-surface-container-low disabled:opacity-25"
+              >
+                <Icon name="chevron_left" className="text-[18px]" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilterOpen(true)}
+                className="min-w-0 flex-1 truncate rounded-lg px-1 text-center text-sm font-semibold transition-colors hover:bg-surface-container-low"
+              >
+                {data.periodLabel}
+              </button>
+              <button
+                type="button"
+                aria-label="ช่วงเวลาถัดไป"
+                disabled={!data.hasNextPeriod || isLoading}
+                onClick={() => setAnchorDate(data.nextAnchorDate)}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-surface-container-low disabled:opacity-25"
+              >
+                <Icon name="chevron_right" className="text-[18px]" />
+              </button>
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setFilterOpen(true)}
+            aria-label="ตัวกรองเพิ่มเติม"
+            className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-outline-variant/70 bg-surface-container-lowest text-on-surface-variant shadow-sm transition-colors hover:border-primary/50"
+          >
+            <Icon name="tune" className="text-[19px]" />
+            {selectedCategories.length > 0 && (
+              <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-bold text-on-primary">
+                {selectedCategories.length}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {isLoading && (
+          <span className="mt-1.5 flex items-center gap-1 text-[10px] text-primary" aria-live="polite">
+            <span className="h-2.5 w-2.5 animate-spin rounded-full border-2 border-primary/25 border-t-primary" />
             กำลังอัปเดต
           </span>
-        </div>
-
-        <div className="grid grid-cols-6 gap-1.5 rounded-xl bg-surface-container-low p-1.5" role="group" aria-label="รูปแบบช่วงเวลา">
-          {DASHBOARD_PERIOD_OPTIONS.map((option, index) => (
-            <button
-              key={option}
-              type="button"
-              onClick={() => selectPeriod(option)}
-              aria-pressed={option === period}
-              className={`${index < 3 ? "col-span-2" : "col-span-3"} min-h-10 rounded-lg px-2 text-xs font-medium transition-all active:scale-[0.97] sm:text-sm ${
-                option === period
-                  ? "bg-primary text-on-primary shadow-sm"
-                  : "text-on-surface-variant hover:bg-surface-container-lowest"
-              }`}
-            >
-              {DASHBOARD_PERIOD_LABEL_TH[option]}
-            </button>
-          ))}
-        </div>
-
-        <div className="mt-3">
-          <div className="flex items-center justify-between px-1">
-            <span className="text-[11px] font-medium text-on-surface-variant">กรองตามหมวด</span>
-            {selectedCategories.length > 0 && (
-              <button
-                type="button"
-                onClick={clearCategoryFilter}
-                disabled={isLoading}
-                className="text-[11px] font-semibold text-primary disabled:opacity-50"
-              >
-                ล้างตัวกรอง
-              </button>
-            )}
-          </div>
-          <div className="mt-1.5 flex flex-wrap gap-1.5" role="group" aria-label="กรองตามหมวด">
-            {ALL_CATEGORIES.map((category) => {
-              const isSelected = selectedCategories.includes(category);
-              return (
-                <button
-                  key={category}
-                  type="button"
-                  onClick={() => toggleCategory(category)}
-                  disabled={isLoading}
-                  aria-pressed={isSelected}
-                  className={`flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors active:scale-95 disabled:opacity-50 ${
-                    isSelected
-                      ? "border-primary bg-primary text-on-primary"
-                      : "border-outline-variant/70 bg-surface-container-lowest text-on-surface-variant hover:border-primary/50"
-                  }`}
-                >
-                  <Icon name={EXPENSE_CATEGORY_ICON[category]} className="text-[15px]" />
-                  {EXPENSE_CATEGORY_LABEL_TH[category]}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {period === DASHBOARD_PERIOD.CUSTOM ? (
-          <div className="mt-3">
-            <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2">
-              <label className="min-w-0">
-                <span className="mb-1 block text-[11px] font-medium text-on-surface-variant">วันเริ่มต้น</span>
-                <CalendarDatePicker
-                  value={draftStart ?? data.customStart ?? data.anchorDate}
-                  onChange={setDraftStart}
-                  disabled={isLoading}
-                  ariaLabel="เลือกวันเริ่มต้น"
-                  className="flex min-h-11 w-full items-center gap-1.5 rounded-xl border border-outline-variant/70 bg-surface-container-lowest px-2.5 text-left text-xs transition-colors hover:border-primary disabled:opacity-50"
-                />
-              </label>
-              <span className="mb-3 text-xs text-on-surface-variant">ถึง</span>
-              <label className="min-w-0">
-                <span className="mb-1 block text-[11px] font-medium text-on-surface-variant">วันสิ้นสุด</span>
-                <CalendarDatePicker
-                  value={draftEnd ?? data.customEnd ?? data.anchorDate}
-                  onChange={setDraftEnd}
-                  disabled={isLoading}
-                  ariaLabel="เลือกวันสิ้นสุด"
-                  align="right"
-                  className="flex min-h-11 w-full items-center gap-1.5 rounded-xl border border-outline-variant/70 bg-surface-container-lowest px-2.5 text-left text-xs transition-colors hover:border-primary disabled:opacity-50"
-                />
-              </label>
-            </div>
-            <div className="mt-2.5 flex items-center justify-between gap-3">
-              <p className="text-[10px] text-on-surface-variant">เลือกได้สูงสุด 366 วัน</p>
-              <button
-                type="button"
-                disabled={!customRangeChanged || isLoading}
-                onClick={applyCustomRange}
-                className="min-h-10 rounded-xl bg-primary px-5 text-xs font-semibold text-on-primary transition-all active:scale-95 disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant"
-              >
-                ใช้ช่วงเวลานี้
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="mt-3 flex items-center gap-1 rounded-xl border border-outline-variant/70 bg-surface-container-lowest p-1.5">
-            <button
-              type="button"
-              aria-label="ช่วงเวลาก่อนหน้า"
-              disabled={!data.hasPrevPeriod || isLoading}
-              onClick={() => setAnchorDate(data.prevAnchorDate)}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-surface-container-low disabled:opacity-25"
-            >
-              <Icon name="chevron_left" />
-            </button>
-            <CalendarDatePicker
-              value={data.anchorDate}
-              onChange={setAnchorDate}
-              label={data.periodLabel}
-              mode={datePickerMode}
-              disabled={isLoading}
-              ariaLabel={datePickerMode === "month" ? "เลือกเดือน" : "เลือกวันที่"}
-              className="flex min-h-10 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg px-2 text-sm font-semibold transition-colors hover:bg-surface-container-low disabled:opacity-50"
-            />
-            <button
-              type="button"
-              aria-label="ช่วงเวลาถัดไป"
-              disabled={!data.hasNextPeriod || isLoading}
-              onClick={() => setAnchorDate(data.nextAnchorDate)}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-surface-container-low disabled:opacity-25"
-            >
-              <Icon name="chevron_right" />
-            </button>
-          </div>
         )}
-      </section>
+      </div>
+
+      {filterOpen && (
+        <>
+          <div
+            className="fixed inset-0 z-40 bg-black/40"
+            onClick={() => setFilterOpen(false)}
+            aria-hidden="true"
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="ตัวกรอง"
+            className="fixed inset-x-0 bottom-0 z-50 mx-auto w-full max-w-md rounded-t-3xl bg-surface p-4 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl"
+          >
+            <div className="mx-auto h-1.5 w-10 rounded-full bg-outline-variant/70" />
+            <div className="mt-3 flex items-center justify-between">
+              <h2 className="text-base font-semibold">ตัวกรอง</h2>
+              <button
+                type="button"
+                onClick={() => setFilterOpen(false)}
+                aria-label="ปิด"
+                className="flex h-9 w-9 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-surface-container-low"
+              >
+                <Icon name="close" className="text-[19px]" />
+              </button>
+            </div>
+
+            <div className="mt-4 max-h-[65vh] overflow-y-auto pr-0.5">
+              <span className="mb-1.5 block px-1 text-[11px] font-medium text-on-surface-variant">ช่วงเวลา</span>
+              <div className="grid grid-cols-6 gap-1.5 rounded-xl bg-surface-container-low p-1.5" role="group" aria-label="รูปแบบช่วงเวลา">
+                {DASHBOARD_PERIOD_OPTIONS.map((option, index) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => selectPeriod(option)}
+                    aria-pressed={option === period}
+                    className={`${index < 3 ? "col-span-2" : "col-span-3"} min-h-10 rounded-lg px-2 text-xs font-medium transition-all active:scale-[0.97] sm:text-sm ${
+                      option === period
+                        ? "bg-primary text-on-primary shadow-sm"
+                        : "text-on-surface-variant hover:bg-surface-container-lowest"
+                    }`}
+                  >
+                    {DASHBOARD_PERIOD_LABEL_TH[option]}
+                  </button>
+                ))}
+              </div>
+
+              {period !== DASHBOARD_PERIOD.CUSTOM && (
+                <div className="mt-3">
+                  <span className="mb-1.5 block px-1 text-[11px] font-medium text-on-surface-variant">ไปยังช่วงเวลาอื่น</span>
+                  <CalendarDatePicker
+                    value={data.anchorDate}
+                    onChange={setAnchorDate}
+                    mode={datePickerMode}
+                    disabled={isLoading}
+                    ariaLabel={datePickerMode === "month" ? "เลือกเดือน" : "เลือกวันที่"}
+                    className="flex min-h-11 w-full items-center gap-2 rounded-xl border border-outline-variant/70 bg-surface-container-lowest px-3 text-left text-sm font-medium transition-colors hover:border-primary disabled:opacity-50"
+                  />
+                </div>
+              )}
+
+              {period === DASHBOARD_PERIOD.CUSTOM && (
+                <div className="mt-3">
+                  <span className="mb-1.5 block px-1 text-[11px] font-medium text-on-surface-variant">กำหนดช่วงวันที่</span>
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2">
+                    <label className="min-w-0">
+                      <span className="mb-1 block text-[11px] font-medium text-on-surface-variant">วันเริ่มต้น</span>
+                      <CalendarDatePicker
+                        value={draftStart ?? data.customStart ?? data.anchorDate}
+                        onChange={setDraftStart}
+                        disabled={isLoading}
+                        ariaLabel="เลือกวันเริ่มต้น"
+                        className="flex min-h-11 w-full items-center gap-1.5 rounded-xl border border-outline-variant/70 bg-surface-container-lowest px-2.5 text-left text-xs transition-colors hover:border-primary disabled:opacity-50"
+                      />
+                    </label>
+                    <span className="mb-3 text-xs text-on-surface-variant">ถึง</span>
+                    <label className="min-w-0">
+                      <span className="mb-1 block text-[11px] font-medium text-on-surface-variant">วันสิ้นสุด</span>
+                      <CalendarDatePicker
+                        value={draftEnd ?? data.customEnd ?? data.anchorDate}
+                        onChange={setDraftEnd}
+                        disabled={isLoading}
+                        ariaLabel="เลือกวันสิ้นสุด"
+                        align="right"
+                        className="flex min-h-11 w-full items-center gap-1.5 rounded-xl border border-outline-variant/70 bg-surface-container-lowest px-2.5 text-left text-xs transition-colors hover:border-primary disabled:opacity-50"
+                      />
+                    </label>
+                  </div>
+                  <div className="mt-2.5 flex items-center justify-between gap-3">
+                    <p className="text-[10px] text-on-surface-variant">เลือกได้สูงสุด 366 วัน</p>
+                    <button
+                      type="button"
+                      disabled={!customRangeChanged || isLoading}
+                      onClick={applyCustomRange}
+                      className="min-h-10 rounded-xl bg-primary px-5 text-xs font-semibold text-on-primary transition-all active:scale-95 disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant"
+                    >
+                      ใช้ช่วงเวลานี้
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-4">
+                <div className="flex items-center justify-between px-1">
+                  <span className="text-[11px] font-medium text-on-surface-variant">กรองตามหมวด</span>
+                  {selectedCategories.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={clearCategoryFilter}
+                      disabled={isLoading}
+                      className="text-[11px] font-semibold text-primary disabled:opacity-50"
+                    >
+                      ล้างตัวกรอง
+                    </button>
+                  )}
+                </div>
+                <div className="mt-1.5 flex flex-wrap gap-1.5" role="group" aria-label="กรองตามหมวด">
+                  {ALL_CATEGORIES.map((category) => {
+                    const isSelected = selectedCategories.includes(category);
+                    return (
+                      <button
+                        key={category}
+                        type="button"
+                        onClick={() => toggleCategory(category)}
+                        disabled={isLoading}
+                        aria-pressed={isSelected}
+                        className={`flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors active:scale-95 disabled:opacity-50 ${
+                          isSelected
+                            ? "border-primary bg-primary text-on-primary"
+                            : "border-outline-variant/70 bg-surface-container-lowest text-on-surface-variant hover:border-primary/50"
+                        }`}
+                      >
+                        <Icon name={EXPENSE_CATEGORY_ICON[category]} className="text-[15px]" />
+                        {EXPENSE_CATEGORY_LABEL_TH[category]}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setFilterOpen(false)}
+              className="mt-4 min-h-12 w-full rounded-xl bg-primary text-sm font-semibold text-on-primary transition-transform active:scale-[0.98]"
+            >
+              ดูผลลัพธ์
+            </button>
+          </div>
+        </>
+      )}
 
       {fetchError && (
         <div className="mt-3 flex items-center gap-2 rounded-xl bg-red-50 p-3 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-300" role="alert">
