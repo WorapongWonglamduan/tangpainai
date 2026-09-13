@@ -30,6 +30,7 @@ import {
   CANCEL_CONFIRM_PREFIX,
   CANCEL_REJECT,
   HISTORY_COMMANDS,
+  OPEN_KEYBOARD_POSTBACK,
   RICH_MENU_POSTBACK,
 } from "@/constants/bot-commands";
 import type { Expense } from "@/generated/prisma/client";
@@ -52,6 +53,21 @@ const MAIN_QUICK_REPLY: messagingApi.QuickReply | undefined = liffId
         {
           type: "action",
           action: { type: "postback", label: "วิธีใช้งาน", data: RICH_MENU_POSTBACK.USAGE_GUIDE, displayText: "วิธีใช้งาน" },
+        },
+        {
+          type: "action",
+          // inputOption: "openKeyboard" opens the chat's text input right
+          // after this postback — the user reaches their device's own
+          // mic/dictation key from there, no voice-message handling needed
+          // on our end. displayText/data are set but ignored by
+          // handlePostback (see OPEN_KEYBOARD_POSTBACK) since the keyboard
+          // opening is the entire point of tapping this button.
+          action: {
+            type: "postback",
+            label: "🎤 พูดแทนพิมพ์",
+            data: OPEN_KEYBOARD_POSTBACK,
+            inputOption: "openKeyboard",
+          },
         },
       ],
     }
@@ -315,6 +331,13 @@ async function handlePostback(
   replyToken: string,
   householdMember: HouseholdMemberContext,
 ) {
+  if (data === OPEN_KEYBOARD_POSTBACK) {
+    // No reply needed — LINE already opened the keyboard client-side as
+    // soon as the button was tapped (that's what inputOption: "openKeyboard"
+    // does). Replying here would just be a redundant/confusing message.
+    return;
+  }
+
   if (data === RICH_MENU_POSTBACK.USAGE_GUIDE) {
     await lineClient.replyMessage({
       replyToken,

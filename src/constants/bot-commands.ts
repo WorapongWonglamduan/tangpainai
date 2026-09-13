@@ -12,6 +12,13 @@ export const RICH_MENU_POSTBACK = {
   USAGE_GUIDE: "richmenu:usage_guide",
 } as const;
 
+// Postback data for the quick reply "พูดแทนพิมพ์" button. Its only purpose is
+// the inputOption: "openKeyboard" side effect (LINE opens the keyboard —
+// with the device's own mic/dictation button reachable from there — right
+// after the tap), so handlePostback treats this value as a no-op: no reply
+// is sent, since sending one would fight with the keyboard for focus.
+export const OPEN_KEYBOARD_POSTBACK = "quickreply:open_keyboard";
+
 // Postback data for the cancel confirmation step (typed "ยกเลิก" / "ยกเลิก N"
 // no longer delete immediately — they preview, then wait for this postback).
 // Separate prefix from the pending-expense "confirm:"/"reject:" postbacks
