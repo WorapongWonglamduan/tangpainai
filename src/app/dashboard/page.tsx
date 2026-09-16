@@ -420,7 +420,7 @@ export default function DashboardPage() {
                 <div className="mt-3">
                   <span className="mb-1.5 block px-1 text-[11px] font-medium text-on-surface-variant">กำหนดช่วงวันที่</span>
                   <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2">
-                    <label className="min-w-0">
+                    <div className="min-w-0">
                       <span className="mb-1 block text-[11px] font-medium text-on-surface-variant">วันเริ่มต้น</span>
                       <CalendarDatePicker
                         value={draftStart ?? data.customStart ?? data.anchorDate}
@@ -429,9 +429,9 @@ export default function DashboardPage() {
                         ariaLabel="เลือกวันเริ่มต้น"
                         className="flex min-h-11 w-full items-center gap-1.5 rounded-xl border border-outline-variant/70 bg-surface-container-lowest px-2.5 text-left text-xs transition-colors hover:border-primary disabled:opacity-50"
                       />
-                    </label>
+                    </div>
                     <span className="mb-3 text-xs text-on-surface-variant">ถึง</span>
-                    <label className="min-w-0">
+                    <div className="min-w-0">
                       <span className="mb-1 block text-[11px] font-medium text-on-surface-variant">วันสิ้นสุด</span>
                       <CalendarDatePicker
                         value={draftEnd ?? data.customEnd ?? data.anchorDate}
@@ -440,7 +440,7 @@ export default function DashboardPage() {
                         ariaLabel="เลือกวันสิ้นสุด"
                         className="flex min-h-11 w-full items-center gap-1.5 rounded-xl border border-outline-variant/70 bg-surface-container-lowest px-2.5 text-left text-xs transition-colors hover:border-primary disabled:opacity-50"
                       />
-                    </label>
+                    </div>
                   </div>
                   <div className="mt-2.5 flex items-center justify-between gap-3">
                     <p className="text-[10px] text-on-surface-variant">เลือกได้สูงสุด 2 ปี</p>
