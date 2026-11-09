@@ -19,7 +19,7 @@ async function runExtraction(
   content: Anthropic.MessageParam["content"],
 ): Promise<ExpenseExtraction> {
   const response = await client.messages.parse({
-    model: "claude-haiku-4-5",
+    model: "claude-haiku-5-5",
     max_tokens: 1024,
     system: systemPrompt,
     messages: [{ role: "user", content }],
